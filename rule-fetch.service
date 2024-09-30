@@ -1,0 +1,11 @@
+[Unit]
+Description=Fetch Retool data and apply firewall rules every 10 seconds
+After=network.target
+
+[Service]
+ExecStart=/bin/bash -c 'while true; do /usr/local/bin/rules.sh; sleep 10; done'
+Restart=always
+User=root
+
+[Install]
+WantedBy=multi-user.target
