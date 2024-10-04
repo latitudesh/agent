@@ -2,7 +2,7 @@
 
 # Function to display usage
 usage() {
-    echo "Usage: $0 -firewall <firewall_id>"
+    echo "Usage: $0 -firewall <firewall_id> -project <project_id>"
     exit 1
 }
 
@@ -15,15 +15,20 @@ while [[ $# -gt 0 ]]; do
         shift # past argument
         shift # past value
         ;;
+        -project)
+        PROJECT_ID="$2"
+        shift # past argument
+        shift # past value
+        ;;
         *)
         usage
         ;;
     esac
 done
 
-# Check if firewall ID is provided
-if [ -z "$FIREWALL_ID" ]; then
-    echo "Error: Firewall ID is required."
+# Check if firewall ID and project ID are provided
+if [ -z "$FIREWALL_ID" ] || [ -z "$PROJECT_ID" ]; then
+    echo "Error: Both Firewall ID and Project ID are required."
     usage
 fi
 
@@ -75,15 +80,16 @@ chmod +x /usr/local/bin/rules.sh
 # Download and install rule-fetch.service
 curl -s https://raw.githubusercontent.com/esoubihe/agent/main/rule-fetch.service -o /etc/systemd/system/rule-fetch.service
 
-# Add security group ID to the environment file
+# Add security group ID and project ID to the environment file
 echo "FIREWALL_ID=$FIREWALL_ID" > /etc/latitude-agent-env
+echo "PROJECT_ID=$PROJECT_ID" >> /etc/latitude-agent-env
 
 # Reload systemd, enable and start the service
 systemctl daemon-reload
 systemctl enable rule-fetch.service
 systemctl start rule-fetch.service
 
-echo "Installation completed successfully. Server associated with Firewall $FIREWALL_ID"
+echo "Installation completed successfully. Server associated with Firewall $FIREWALL_ID and Project $PROJECT_ID"
 
 # Get hostname and IP address
 HOSTNAME=$(hostname)
@@ -96,7 +102,8 @@ RESPONSE=$(curl -s -w "\n%{http_code}" -X POST https://maxihost.retool.com/url/r
      -d "{
          \"hostname\": \"$HOSTNAME\",
          \"ip\": \"$IP\",
-         \"firewall\": \"$FIREWALL_ID\"
+         \"firewall\": \"$FIREWALL_ID\",
+         \"project\": \"$PROJECT_ID\"
      }")
 
 HTTP_STATUS=$(echo "$RESPONSE" | tail -n1)
@@ -111,6 +118,5 @@ fi
 
 echo "
 IMPORTANT: Please approve this server in your Latitude dashboard.
-Visit: https://latitude.sh/dashboard/team-id/project-id/security/firewall/$FIREWALL_ID
-Replace 'team-id' and 'project-id' with your actual team and project IDs.
+Visit: https://latitude.sh/dashboard/$PROJECT_ID/security/firewall/$FIREWALL_ID
 "
