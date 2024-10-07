@@ -1,4 +1,4 @@
-<Alert>This is a work in progress and not all features are available yet. We do not recommend using this in a production environment.</Alert>
+**This is a work in progress and not all features are available yet. We do not recommend using this in a production environment.**
 
 The Latitude.sh agent is a tool that allows you to manage new and upcoming features for Latitude.sh.
 
