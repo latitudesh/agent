@@ -74,15 +74,15 @@ fi
 mkdir -p /etc/lsh-agent/lib
 
 # Download and install rules.sh
-curl -s https://raw.githubusercontent.com/esoubihe/agent/main/rules.sh -o /etc/lsh-agent/rules.sh
+curl -s https://raw.githubusercontent.com/latitudesh/agent/main/rules.sh -o /etc/lsh-agent/rules.sh
 chmod +x /etc/lsh-agent/rules.sh
 
 # Download and install firewall_diff.sh
-curl -s https://raw.githubusercontent.com/esoubihe/agent/main/lib/firewall_diff.sh -o /etc/lsh-agent/lib/firewall_diff.sh
+curl -s https://raw.githubusercontent.com/latitudesh/agent/main/lib/firewall_diff.sh -o /etc/lsh-agent/lib/firewall_diff.sh
 chmod +x /etc/lsh-agent/lib/firewall_diff.sh
 
 # Download and install rule-fetch.service
-curl -s https://raw.githubusercontent.com/esoubihe/agent/main/rule-fetch.service -o /etc/systemd/system/rule-fetch.service
+curl -s https://raw.githubusercontent.com/latitudesh/agent/main/rule-fetch.service -o /etc/systemd/system/rule-fetch.service
 
 # Update the service file to use the new path
 sed -i 's|ExecStart=/usr/local/bin/rules.sh|ExecStart=/etc/lsh-agent/rules.sh|' /etc/systemd/system/rule-fetch.service
