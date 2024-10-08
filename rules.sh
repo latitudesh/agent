@@ -89,7 +89,7 @@ if [ "$HTTP_STATUS" -eq 200 ]; then
 
     # Process and display firewall rules
     echo "Firewall rules received from the server:"
-    echo "$json_data" | jq -r '.firewall.rules[] | "From: \(.from // "*"), To: \(.to // "*"), Protocol: \(.protocol // "any"), Port: \(.port // "any")"'
+    echo "$json_data" | jq -r '.firewall.rules[] | "From: \(.from // "any"), To: \(.to // "any"), Protocol: \(.protocol // "any"), Port: \(.port // "any")"'
 
     print_colored "green" "Firewall rules retrieved successfully."
 

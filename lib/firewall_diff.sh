@@ -3,7 +3,7 @@
 # Function to normalize UFW rule
 normalize_ufw_rule() {
     local rule="$1"
-    local from to proto port
+    local from proto port
 
     if [[ $rule =~ ^([0-9]+/[a-z]+) ]]; then
         port="${BASH_REMATCH[1]}"
@@ -15,9 +15,9 @@ normalize_ufw_rule() {
         return 1
     fi
 
-    [ "$from" == "Anywhere" ] && from="*"
+    [ "$from" == "Anywhere" ] && from="any"
 
-    echo "From: $from, To: *, Protocol: $proto, Port: $port"
+    echo "From: $from, To: any, Protocol: $proto, Port: $port"
 }
 
 # Function to get existing UFW rules
@@ -30,7 +30,7 @@ get_ufw_rules() {
 # Function to get API rules
 get_api_rules() {
     local json_data="$1"
-    echo "$json_data" | jq -r '.firewall.rules[] | "From: \(.from // "*"), To: \(.to // "*"), Protocol: \(.protocol // "any"), Port: \(.port // "any")"'
+    echo "$json_data" | jq -r '.firewall.rules[] | "From: \(.from // "any"), To: \(.to // "any"), Protocol: \(.protocol // "any"), Port: \(.port // "any")"'
 }
 
 # Function to add rules to UFW
