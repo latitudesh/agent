@@ -84,18 +84,18 @@ firewall_diff() {
     local changes_made=false
 
     echo "Current UFW rules:"
-    ufw_rules=$(get_ufw_rules)
+    ufw_rules=$(get_ufw_rules | sort -u)
     echo "$ufw_rules"
 
     echo -e "\nAPI rules:"
-    api_rules=$(get_api_rules "$json_data")
+    api_rules=$(get_api_rules "$json_data" | sort -u)
     echo "$api_rules"
 
     echo -e "\nPerforming diff between existing UFW rules and API rules:"
     local rules_to_add
     local rules_to_remove
-    rules_to_add=$(comm -13 <(echo "$ufw_rules" | sort) <(echo "$api_rules" | sort))
-    rules_to_remove=$(comm -23 <(echo "$ufw_rules" | sort) <(echo "$api_rules" | sort))
+    rules_to_add=$(comm -13 <(echo "$ufw_rules") <(echo "$api_rules"))
+    rules_to_remove=$(comm -23 <(echo "$ufw_rules") <(echo "$api_rules"))
 
     echo -e "\nRules to add:"
     echo "$rules_to_add"
