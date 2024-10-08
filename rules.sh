@@ -82,8 +82,15 @@ if [ "$HTTP_STATUS" -eq 200 ]; then
         exit 0
     fi
 
+    # Process and display firewall rules
+    echo "Firewall rules received from the server:"
+    echo "$json_data" | jq -r '.firewall.rules[] | "From: \(.from // "any"), To: \(.to // "any"), Protocol: \(.protocol // "any"), Port: \(.port // "any")"'
+
+    print_colored "green" "Firewall rules retrieved successfully."
+
     # Perform diff
-    firewall_diff "$json_data"
+    echo -e "\nPerforming diff between existing UFW rules and API rules:"
+    firewall_diff "$json_data" sudo_ufw
 else
     error_message=$(jq -r '.message // empty' "$TEMP_FILE")
     handle_error "Failed to retrieve firewall rules. HTTP Status: $HTTP_STATUS. Error: $error_message"

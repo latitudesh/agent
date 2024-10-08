@@ -17,12 +17,12 @@ normalize_ufw_rule() {
 
     [ "$from" == "Anywhere" ] && from="any"
 
-    echo "From: $from, To: any, Protocol: $proto, Port: $port"
+    echo "From: $from, Protocol: $proto, Port: $port"
 }
 
 # Function to get existing UFW rules
 get_ufw_rules() {
-    sudo ufw status | grep ALLOW | while read -r rule; do
+    sudo ufw status | grep ALLOW | grep -v '(v6)' | while read -r rule; do
         normalize_ufw_rule "$rule"
     done
 }
@@ -30,17 +30,17 @@ get_ufw_rules() {
 # Function to get API rules
 get_api_rules() {
     local json_data="$1"
-    echo "$json_data" | jq -r '.firewall.rules[] | "From: \(.from // "any"), To: \(.to // "any"), Protocol: \(.protocol // "any"), Port: \(.port // "any")"'
+    echo "$json_data" | jq -r '.firewall.rules[] | "From: \(.from // "any"), Protocol: \(.protocol // "any"), Port: \(.port // "any")"'
 }
 
 # Function to add rules to UFW
 add_ufw_rules() {
     local rules="$1"
     echo "$rules" | while IFS= read -r rule; do
-        if [[ $rule =~ From:\ (.*),\ To:\ (.*),\ Protocol:\ (.*),\ Port:\ (.*) ]]; then
+        if [[ $rule =~ From:\ (.*),\ Protocol:\ (.*),\ Port:\ (.*) ]]; then
             local from="${BASH_REMATCH[1]}"
-            local proto="${BASH_REMATCH[3]}"
-            local port="${BASH_REMATCH[4]}"
+            local proto="${BASH_REMATCH[2]}"
+            local port="${BASH_REMATCH[3]}"
 
             if sudo ufw status | grep -q "$port/$proto.*$from"; then
                 echo "Rule already exists: $rule"
@@ -61,17 +61,12 @@ remove_ufw_rules() {
 
     echo "$rules" | while IFS= read -r rule; do
         echo "Debug: Processing rule: $rule"
-        if [[ $rule =~ From:\ (.*),\ To:\ .*,\ Protocol:\ (.*),\ Port:\ (.*) ]]; then
+        if [[ $rule =~ From:\ (.*),\ Protocol:\ (.*),\ Port:\ (.*) ]]; then
             local from="${BASH_REMATCH[1]}"
             local proto="${BASH_REMATCH[2]}"
             local port="${BASH_REMATCH[3]}"
 
-            # Handle IPv6 rules
-            if [[ $from == "(v6)" ]]; then
-                local ufw_command="sudo ufw delete allow from ::/0 to any port $port proto $proto"
-            else
-                local ufw_command="sudo ufw delete allow from $from to any port $port proto $proto"
-            fi
+            local ufw_command="sudo ufw delete allow from $from to any port $port proto $proto"
 
             echo "Executing: $ufw_command"
             eval "$ufw_command"
@@ -88,14 +83,15 @@ firewall_diff() {
     local api_rules
     local changes_made=false
 
-    # echo "Current UFW rules:"
-    # ufw_rules=$(get_ufw_rules)
-    # echo "$ufw_rules"
+    echo "Current UFW rules:"
+    ufw_rules=$(get_ufw_rules)
+    echo "$ufw_rules"
 
-    # echo -e "\nAPI rules:"
-    # api_rules=$(get_api_rules "$json_data")
-    # echo "$api_rules"
+    echo -e "\nAPI rules:"
+    api_rules=$(get_api_rules "$json_data")
+    echo "$api_rules"
 
+    echo -e "\nPerforming diff between existing UFW rules and API rules:"
     local rules_to_add
     local rules_to_remove
     rules_to_add=$(comm -13 <(echo "$ufw_rules" | sort) <(echo "$api_rules" | sort))
@@ -127,5 +123,10 @@ firewall_diff() {
     if [ "$changes_made" = true ]; then
         echo -e "\nReloading Firewall to apply changes:"
         sudo ufw reload
+    else
+        echo -e "\nNo changes were made. Skipping Firewall reload."
     fi
+    
+    echo -e "\nFinal UFW status:"
+    sudo ufw status numbered
 }
