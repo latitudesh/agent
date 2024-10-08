@@ -33,16 +33,14 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # Stop and disable the service
-print_colored "yellow" "Stopping and disabling the rule-fetch service..."
+print_colored "yellow" "Stopping and disabling the service..."
 systemctl stop rule-fetch.service
 systemctl disable rule-fetch.service
 
 # Remove service file
-print_colored "yellow" "Removing rule-fetch.service file..."
+print_colored "yellow" "Removing files..."
 rm -f /etc/systemd/system/rule-fetch.service
-
 # Remove agent files
-print_colored "yellow" "Removing agent files..."
 rm -rf /etc/lsh-agent
 rm -f /etc/lsh-agent-env
 
