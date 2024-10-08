@@ -63,8 +63,15 @@ else
     print_colored "yellow" "Firewall will not be disabled. Review your firewall rules before logging out."
 fi
 
+# Check if EXTRA_PARAMETERS is set in the environment file
+if [ -n "$EXTRA_PARAMETERS" ]; then
+    RETOOL_URL="https://maxihost.retool.com/url/agent-uninstall${EXTRA_PARAMETERS}"
+else
+    RETOOL_URL="https://maxihost.retool.com/url/agent-uninstall"
+fi
+
 print_colored "yellow" "Sending uninstall notification to the server..."
-response=$(curl -s -X POST https://maxihost.retool.com/url/agent-uninstall \
+response=$(curl -s -X POST "$RETOOL_URL" \
      -H "Content-Type: application/json" \
      -d "{
          \"project_id\": \"$PROJECT_ID\",

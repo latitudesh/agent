@@ -26,6 +26,13 @@ else
     handle_error "Environment file not found. Please run install.sh first."
 fi
 
+# Check for extra_parameters
+if [ -n "$EXTRA_PARAMETERS" ]; then
+    RETOOL_URL="https://maxihost.retool.com/url/ping${EXTRA_PARAMETERS}"
+else
+    RETOOL_URL="https://maxihost.retool.com/url/ping"
+fi
+
 # Debug: Print environment variables
 echo "FIREWALL_ID: $FIREWALL_ID"
 echo "PROJECT_ID: $PROJECT_ID"
@@ -44,7 +51,7 @@ TEMP_FILE="/tmp/lsh_firewall_temp.json"
 
 # Perform the curl request and save the output to a temporary file
 HTTP_STATUS=$(curl -s -w "%{http_code}" -X POST \
-  --url "https://maxihost.retool.com/url/ping" \
+  --url "$RETOOL_URL" \
   -H 'Content-Type: application/json' \
   -d "{\"firewall_id\": \"$FIREWALL_ID\", \"project_id\": \"$PROJECT_ID\", \"server_id\": \"$SERVER_ID\"}" \
   -o "$TEMP_FILE")

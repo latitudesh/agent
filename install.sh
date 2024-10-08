@@ -2,7 +2,7 @@
 
 # Function to display usage
 usage() {
-    echo "Usage: $0 -firewall <firewall_id> -project <project_id>"
+    echo "Usage: $0 -firewall <firewall_id> -project <project_id> [-extra_parameters <extra_parameters>]"
     exit 1
 }
 
@@ -17,6 +17,11 @@ while [[ $# -gt 0 ]]; do
         ;;
         -project)
         PROJECT_ID="$2"
+        shift # past argument
+        shift # past value
+        ;;
+        -extra_parameters)
+        EXTRA_PARAMETERS="$2"
         shift # past argument
         shift # past value
         ;;
@@ -100,9 +105,15 @@ systemctl start rule-fetch.service
 HOSTNAME=$(hostname)
 IP=$(hostname -I | awk '{print $1}')
 
+# Construct the Retool URL with extra parameters
+RETOOL_URL="https://maxihost.retool.com/url/register_server"
+if [ -n "$EXTRA_PARAMETERS" ]; then
+    RETOOL_URL="${RETOOL_URL}${EXTRA_PARAMETERS}"
+fi
+
 # Send POST request
 echo "Sending server information to Latitude.sh..."
-RESPONSE=$(curl -s -w "\n%{http_code}" -X POST https://maxihost.retool.com/url/register_server \
+RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$RETOOL_URL" \
      -H "Content-Type: application/json" \
      -d "{
          \"hostname\": \"$HOSTNAME\",
