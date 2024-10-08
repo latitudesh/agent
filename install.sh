@@ -60,14 +60,14 @@ done
 
 # Enable UFW if it's not active
 if ! ufw status | grep -q "Status: active"; then
-    echo "Enabling UFW..."
+    echo "Enabling Firewall..."
     ufw --force enable
     ufw default deny incoming
     ufw default allow outgoing
     ufw allow ssh
-    echo "UFW enabled and configured with default rules"
+    echo "Firewall enabled and configured with default rules"
 else
-    echo "UFW is already active"
+    echo "Firewall is already active"
 fi
 
 # Create directory structure
