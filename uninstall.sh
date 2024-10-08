@@ -49,18 +49,14 @@ rm -f /etc/lsh-agent-env
 # Reload systemd
 systemctl daemon-reload
 
-# Prompt user to disable UFW
-read -p "Do you want to disable Firewall? (y/n): " disable_ufw
-if [[ $disable_ufw =~ ^[Yy]$ ]]; then
-    print_colored "yellow" "Disabling Firewall..."
-    if command -v ufw &> /dev/null; then
-        ufw disable
-        print_colored "green" "Firewall has been disabled."
-    else
-        print_colored "red" "Firewall is not installed or not found in the system path."
-    fi
+# Flush UFW rules and disable firewall
+print_colored "yellow" "Flushing Firewall rules and disabling Firewall..."
+if command -v ufw &> /dev/null; then
+    ufw --force reset
+    ufw disable
+    print_colored "green" "Firewall rules have been flushed and Firewall has been disabled."
 else
-    print_colored "yellow" "Firewall will not be disabled. Review your firewall rules before logging out."
+    print_colored "red" "Firewall is not installed or not found in the system path."
 fi
 
 # Check if EXTRA_PARAMETERS is set in the environment file
