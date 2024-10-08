@@ -86,16 +86,16 @@ firewall_diff() {
     local json_data="$1"
     local ufw_rules
     local api_rules
+    local changes_made=false
 
-    echo "Current UFW rules:"
-    ufw_rules=$(get_ufw_rules)
-    echo "$ufw_rules"
+    # echo "Current UFW rules:"
+    # ufw_rules=$(get_ufw_rules)
+    # echo "$ufw_rules"
 
-    echo -e "\nAPI rules:"
-    api_rules=$(get_api_rules "$json_data")
-    echo "$api_rules"
+    # echo -e "\nAPI rules:"
+    # api_rules=$(get_api_rules "$json_data")
+    # echo "$api_rules"
 
-    echo -e "\nPerforming diff between existing UFW rules and API rules:"
     local rules_to_add
     local rules_to_remove
     rules_to_add=$(comm -13 <(echo "$ufw_rules" | sort) <(echo "$api_rules" | sort))
@@ -107,6 +107,7 @@ firewall_diff() {
     if [ -n "$rules_to_add" ]; then
         echo -e "\nAdding new rules to UFW:"
         add_ufw_rules "$rules_to_add"
+        changes_made=true
     else
         echo "No new rules to add."
     fi
@@ -117,13 +118,14 @@ firewall_diff() {
     if [ -n "$rules_to_remove" ]; then
         echo "Removing rules from UFW:"
         remove_ufw_rules "$rules_to_remove"
+        changes_made=true
     else
         echo "No rules to remove."
     fi
 
-    # Reload UFW to apply changes
-    sudo ufw reload
-    
-    echo -e "\nFinal UFW status:"
-    sudo ufw status numbered
+    # Reload UFW only if changes were made
+    if [ "$changes_made" = true ]; then
+        echo -e "\nReloading Firewall to apply changes:"
+        sudo ufw reload
+    fi
 }

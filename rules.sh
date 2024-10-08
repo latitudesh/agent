@@ -33,11 +33,6 @@ else
     RETOOL_URL="https://maxihost.retool.com/url/ping"
 fi
 
-# Debug: Print environment variables
-echo "FIREWALL_ID: $FIREWALL_ID"
-echo "PROJECT_ID: $PROJECT_ID"
-echo "SERVER_ID: $SERVER_ID"
-
 # Import firewall_diff.sh
 if [ -f "/etc/lsh-agent/lib/firewall_diff.sh" ]; then
     source /etc/lsh-agent/lib/firewall_diff.sh
@@ -87,14 +82,7 @@ if [ "$HTTP_STATUS" -eq 200 ]; then
         exit 0
     fi
 
-    # Process and display firewall rules
-    echo "Firewall rules received from the server:"
-    echo "$json_data" | jq -r '.firewall.rules[] | "From: \(.from // "any"), To: \(.to // "any"), Protocol: \(.protocol // "any"), Port: \(.port // "any")"'
-
-    print_colored "green" "Firewall rules retrieved successfully."
-
     # Perform diff
-    echo -e "\nPerforming diff between existing UFW rules and API rules:"
     firewall_diff "$json_data"
 else
     error_message=$(jq -r '.message // empty' "$TEMP_FILE")
