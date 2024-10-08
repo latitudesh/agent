@@ -66,8 +66,13 @@ remove_ufw_rules() {
             local proto="${BASH_REMATCH[2]}"
             local port="${BASH_REMATCH[3]}"
 
-            # Construct the UFW delete command
-            local ufw_command="sudo ufw delete allow from $from to any port $port proto $proto"
+            # Handle IPv6 rules
+            if [[ $from == "(v6)" ]]; then
+                local ufw_command="sudo ufw delete allow from ::/0 to any port $port proto $proto"
+            else
+                local ufw_command="sudo ufw delete allow from $from to any port $port proto $proto"
+            fi
+
             echo "Executing: $ufw_command"
             eval "$ufw_command"
         else
