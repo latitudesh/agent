@@ -2,7 +2,7 @@
 
 # Function to display usage
 usage() {
-    echo "Usage: $0 -firewall <firewall_id> -project <project_id> [-extra_parameters <extra_parameters>]"
+    echo "Usage: $0 -firewall <firewall_id> -project <project_id> [-extra_parameters <extra_parameters>] [-public_ip <public_ip>]"
     exit 1
 }
 
@@ -22,6 +22,11 @@ while [[ $# -gt 0 ]]; do
         ;;
         -extra_parameters)
         EXTRA_PARAMETERS="$2"
+        shift # past argument
+        shift # past value
+        ;;
+        -public_ip)
+        PUBLIC_IP="$2"
         shift # past argument
         shift # past value
         ;;
@@ -104,6 +109,11 @@ systemctl start rule-fetch.service
 # Get hostname and IP address
 HOSTNAME=$(hostname)
 IP=$(hostname -I | awk '{print $1}')
+
+# Use PUBLIC_IP if provided
+if [ -n "$PUBLIC_IP" ]; then
+    IP="$PUBLIC_IP"
+fi
 
 # Construct the Retool URL with extra parameters
 RETOOL_URL="https://maxihost.retool.com/url/register_server"
