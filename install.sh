@@ -115,15 +115,16 @@ if [ -n "$PUBLIC_IP" ]; then
     IP="$PUBLIC_IP"
 fi
 
-# Construct the Retool URL with extra parameters
-RETOOL_URL="https://maxihost.retool.com/url/register_server"
+REGISTER_URL="https://maxihost.retool.com/url/register_server"
+
+# Construct the register server URL with extra parameters
 if [ -n "$EXTRA_PARAMETERS" ]; then
-    RETOOL_URL="${RETOOL_URL}${EXTRA_PARAMETERS}"
+    REGISTER_URL="${REGISTER_URL}${EXTRA_PARAMETERS}"
 fi
 
 # Send POST request
 echo "Sending server information to Latitude.sh..."
-RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$RETOOL_URL" \
+RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$REGISTER_URL" \
      -H "Content-Type: application/json" \
      -d "{
          \"hostname\": \"$HOSTNAME\",

@@ -1,5 +1,5 @@
 [Unit]
-Description=Fetch Retool data and apply firewall rules every 30 seconds
+Description=Fetch and apply firewall rules every 30 seconds
 After=network.target
 
 [Service]

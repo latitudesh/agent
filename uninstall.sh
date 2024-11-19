@@ -57,15 +57,15 @@ else
     print_colored "red" "Firewall is not installed or not found in the system path."
 fi
 
+UNINSTALL_URL="https://maxihost.retool.com/url/agent-uninstall"
+
 # Check if EXTRA_PARAMETERS is set in the environment file
 if [ -n "$EXTRA_PARAMETERS" ]; then
-    RETOOL_URL="https://maxihost.retool.com/url/agent-uninstall${EXTRA_PARAMETERS}"
-else
-    RETOOL_URL="https://maxihost.retool.com/url/agent-uninstall"
+    UNINSTALL_URL="${UNINSTALL_URL}${EXTRA_PARAMETERS}"
 fi
 
 print_colored "yellow" "Sending uninstall notification to the server..."
-response=$(curl -s -X POST "$RETOOL_URL" \
+response=$(curl -s -X POST "$UNINSTALL_URL" \
      -H "Content-Type: application/json" \
      -d "{
          \"project_id\": \"$PROJECT_ID\",
