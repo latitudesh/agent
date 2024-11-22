@@ -106,49 +106,7 @@ systemctl daemon-reload
 systemctl enable rule-fetch.service
 systemctl start rule-fetch.service
 
-# Get hostname and IP address
-HOSTNAME=$(hostname)
-IP=$(hostname -I | awk '{print $1}')
-
-# Use PUBLIC_IP if provided
-if [ -n "$PUBLIC_IP" ]; then
-    IP="$PUBLIC_IP"
-fi
-
-REGISTER_URL="https://maxihost.retool.com/url/register_server"
-
-# Construct the register server URL with extra parameters
-if [ -n "$EXTRA_PARAMETERS" ]; then
-    REGISTER_URL="${REGISTER_URL}${EXTRA_PARAMETERS}"
-fi
-
-# Send POST request
-echo "Sending server information to Latitude.sh..."
-RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$REGISTER_URL" \
-     -H "Content-Type: application/json" \
-     -d "{
-         \"hostname\": \"$HOSTNAME\",
-         \"ip\": \"$IP\",
-         \"firewall\": \"$FIREWALL_ID\",
-         \"project\": \"$PROJECT_ID\"
-     }")
-
-HTTP_STATUS=$(echo "$RESPONSE" | tail -n1)
-RESPONSE_BODY=$(echo "$RESPONSE" | sed '$d')
-
-if [ "$HTTP_STATUS" -eq 201 ]; then
-    echo "Installation completed successfully. Server associated with Firewall $FIREWALL_ID and Project $PROJECT_ID"
-
-    echo "
-    IMPORTANT: Please approve this server in your Latitude.sh dashboard.
-    Visit: https://latitude.sh/dashboard/$PROJECT_ID/networking/firewall/$FIREWALL_ID
-    "
-    SERVER_ID=$(echo "$RESPONSE_BODY" | jq -r '.server_id // empty')
-    if [ -n "$SERVER_ID" ]; then
-        echo "SERVER_ID=$SERVER_ID" >> /etc/lsh-agent-env
-    else
-        echo "Error: Could not extract server ID from the response."
-    fi
-else
-    echo "Error sending server information to Latitude.sh. HTTP Status: $HTTP_STATUS"
-fi
+echo "Installation completed successfully."
+echo "
+IMPORTANT: Make sure you added the server to the firewall in the Latitude.sh dashboard.
+"

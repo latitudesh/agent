@@ -57,31 +57,5 @@ else
     print_colored "red" "Firewall is not installed or not found in the system path."
 fi
 
-UNINSTALL_URL="https://maxihost.retool.com/url/agent-uninstall"
-
-# Check if EXTRA_PARAMETERS is set in the environment file
-if [ -n "$EXTRA_PARAMETERS" ]; then
-    UNINSTALL_URL="${UNINSTALL_URL}${EXTRA_PARAMETERS}"
-fi
-
-print_colored "yellow" "Sending uninstall notification to the server..."
-response=$(curl -s -X POST "$UNINSTALL_URL" \
-     -H "Content-Type: application/json" \
-     -d "{
-         \"project_id\": \"$PROJECT_ID\",
-         \"server_id\": \"$SERVER_ID\"
-     }")
-
-# Parse the JSON response
-status=$(echo "$response" | jq -r '.status')
-message=$(echo "$response" | jq -r '.message')
-
-# Print the message in the appropriate color
-if [ "$status" = "success" ]; then
-    print_colored "green" "$message"
-else
-    print_colored "red" "$message"
-fi
-
 print_colored "green" "Uninstallation completed successfully."
 print_colored "yellow" "Note: If you want to remove other dependencies (curl, jq, git), please do so manually."
