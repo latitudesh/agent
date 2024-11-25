@@ -12,17 +12,17 @@ print_colored() {
     esac
 }
 
-# Check if /etc/lsh-agent-env exists and source it
-if [ -f /etc/lsh-agent-env ]; then
-    source /etc/lsh-agent-env
+# Check if /etc/lsh-agent/env exists and source it
+if [ -f /etc/lsh-agent/env ]; then
+    source /etc/lsh-agent/env
 else
-    print_colored "red" "Error: /etc/lsh-agent-env file not found."
+    print_colored "red" "Error: /etc/lsh-agent/env file not found."
     exit 1
 fi
 
-# Check if SERVER_ID and PROJECT_ID are set
-if [ -z "$SERVER_ID" ] || [ -z "$PROJECT_ID" ]; then
-    print_colored "red" "Error: Both Server ID and Project ID are required."
+# Check if PROJECT_ID is set
+if [ -z "$PROJECT_ID" ]; then
+    print_colored "red" "Error: Project ID is required."
     exit 1
 fi
 
@@ -42,7 +42,6 @@ print_colored "yellow" "Removing files..."
 rm -f /etc/systemd/system/rule-fetch.service
 # Remove agent files
 rm -rf /etc/lsh-agent
-rm -f /etc/lsh-agent-env
 
 # Reload systemd
 systemctl daemon-reload

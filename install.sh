@@ -97,9 +97,17 @@ curl -s https://raw.githubusercontent.com/latitudesh/agent/main/rule-fetch.servi
 # Update the service file to use the new path
 sed -i 's|ExecStart=/usr/local/bin/rules.sh|ExecStart=/etc/lsh-agent/rules.sh|' /etc/systemd/system/rule-fetch.service
 
+# Use PUBLIC_IP if provided
+if [ -n "$PUBLIC_IP" ]; then
+    PUBLIC_IP="$PUBLIC_IP"
+else
+    PUBLIC_IP=$(hostname -I | awk '{print $1}')
+fi
+
 # Add firewall and project ID to the environment file
-echo "FIREWALL_ID=$FIREWALL_ID" > /etc/lsh-agent-env
-echo "PROJECT_ID=$PROJECT_ID" >> /etc/lsh-agent-env
+echo "FIREWALL_ID=$FIREWALL_ID" > /etc/lsh-agent/env
+echo "PROJECT_ID=$PROJECT_ID" >> /etc/lsh-agent/env
+echo "PUBLIC_IP=$PUBLIC_IP" >> /etc/lsh-agent/env
 
 # Reload systemd, enable and start the service
 systemctl daemon-reload

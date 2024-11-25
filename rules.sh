@@ -20,8 +20,8 @@ handle_error() {
 }
 
 # Load environment variables
-if [ -f /etc/lsh-agent-env ]; then
-    source /etc/lsh-agent-env
+if [ -f /etc/lsh-agent/env ]; then
+    source /etc/lsh-agent/env
 else
     handle_error "Environment file not found. Please run install.sh first."
 fi
@@ -48,7 +48,7 @@ TEMP_FILE="/tmp/lsh_firewall_temp.json"
 HTTP_STATUS=$(curl -s -w "%{http_code}" -X POST \
   --url "$PING_URL" \
   -H 'Content-Type: application/json' \
-  -d "{\"firewall_id\": \"$FIREWALL_ID\", \"project_id\": \"$PROJECT_ID\", \"server_id\": \"$SERVER_ID\"}" \
+  -d "{\"ip_address\": \"$PUBLIC_IP\"}" \
   -o "$TEMP_FILE")
 
 # Check if the curl request was successful (HTTP status 200)
