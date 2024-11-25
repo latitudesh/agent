@@ -97,10 +97,8 @@ curl -s https://raw.githubusercontent.com/latitudesh/agent/main/rule-fetch.servi
 # Update the service file to use the new path
 sed -i 's|ExecStart=/usr/local/bin/rules.sh|ExecStart=/etc/lsh-agent/rules.sh|' /etc/systemd/system/rule-fetch.service
 
-# Use PUBLIC_IP if provided
-if [ -n "$PUBLIC_IP" ]; then
-    PUBLIC_IP="$PUBLIC_IP"
-else
+# Get public IP address if PUBLIC_IP was not provided
+if [ -z "$PUBLIC_IP" ]; then
     PUBLIC_IP=$(hostname -I | awk '{print $1}')
 fi
 
