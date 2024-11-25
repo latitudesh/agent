@@ -33,13 +33,17 @@ get_api_rules() {
     echo "$json_data" | jq -r '.firewall.rules[] | "From: \(.from // "any"), Protocol: \(.protocol // "any"), Port: \(.port // "any")"'
 }
 
+lowercase() {
+    echo "$1" | tr '[:upper:]' '[:lower:]'
+}
+
 # Function to add rules to UFW
 add_ufw_rules() {
     local rules="$1"
     echo "$rules" | while IFS= read -r rule; do
         if [[ $rule =~ From:\ (.*),\ Protocol:\ (.*),\ Port:\ (.*) ]]; then
             local from="${BASH_REMATCH[1]}"
-            local proto="${BASH_REMATCH[2]}"
+            local proto=$(lowercase "${BASH_REMATCH[2]}")
             local port="${BASH_REMATCH[3]}"
 
             if sudo ufw status | grep -q "$port/$proto.*$from"; then
@@ -63,7 +67,7 @@ remove_ufw_rules() {
         echo "Debug: Processing rule: $rule"
         if [[ $rule =~ From:\ (.*),\ Protocol:\ (.*),\ Port:\ (.*) ]]; then
             local from="${BASH_REMATCH[1]}"
-            local proto="${BASH_REMATCH[2]}"
+            local proto=$(lowercase "${BASH_REMATCH[2]}")
             local port="${BASH_REMATCH[3]}"
 
             local ufw_command="sudo ufw delete allow from $from to any port $port proto $proto"
@@ -126,7 +130,7 @@ firewall_diff() {
     else
         echo -e "\nNo changes were made. Skipping Firewall reload."
     fi
-    
+
     echo -e "\nFinal UFW status:"
     sudo ufw status numbered
 }
