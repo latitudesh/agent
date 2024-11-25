@@ -45,7 +45,7 @@ OUTPUT_FILE="/tmp/lsh_firewall.json"
 TEMP_FILE="/tmp/lsh_firewall_temp.json"
 
 # Perform the curl request and save the output to a temporary file
-HTTP_STATUS=$(curl -s -w "%{http_code}" -X POST \
+HTTP_STATUS=$(curl -s -w "%{http_code}" -X GET \
   --url "$PING_URL" \
   -H 'Content-Type: application/json' \
   -d "{\"ip_address\": \"$PUBLIC_IP\"}" \
