@@ -12,17 +12,17 @@ print_colored() {
     esac
 }
 
-# Check if /etc/lsh-agent-env exists and source it
-if [ -f /etc/lsh-agent-env ]; then
-    source /etc/lsh-agent-env
+# Check if /etc/lsh-agent/env exists and source it
+if [ -f /etc/lsh-agent/env ]; then
+    source /etc/lsh-agent/env
 else
-    print_colored "red" "Error: /etc/lsh-agent-env file not found."
+    print_colored "red" "Error: /etc/lsh-agent/env file not found."
     exit 1
 fi
 
-# Check if SERVER_ID and PROJECT_ID are set
-if [ -z "$SERVER_ID" ] || [ -z "$PROJECT_ID" ]; then
-    print_colored "red" "Error: Both Server ID and Project ID are required."
+# Check if PROJECT_ID is set
+if [ -z "$PROJECT_ID" ]; then
+    print_colored "red" "Error: Project ID is required."
     exit 1
 fi
 
@@ -42,7 +42,6 @@ print_colored "yellow" "Removing files..."
 rm -f /etc/systemd/system/rule-fetch.service
 # Remove agent files
 rm -rf /etc/lsh-agent
-rm -f /etc/lsh-agent-env
 
 # Reload systemd
 systemctl daemon-reload
@@ -55,32 +54,6 @@ if command -v ufw &> /dev/null; then
     print_colored "green" "Firewall rules have been flushed and Firewall has been disabled."
 else
     print_colored "red" "Firewall is not installed or not found in the system path."
-fi
-
-# Check if EXTRA_PARAMETERS is set in the environment file
-if [ -n "$EXTRA_PARAMETERS" ]; then
-    RETOOL_URL="https://maxihost.retool.com/url/agent-uninstall${EXTRA_PARAMETERS}"
-else
-    RETOOL_URL="https://maxihost.retool.com/url/agent-uninstall"
-fi
-
-print_colored "yellow" "Sending uninstall notification to the server..."
-response=$(curl -s -X POST "$RETOOL_URL" \
-     -H "Content-Type: application/json" \
-     -d "{
-         \"project_id\": \"$PROJECT_ID\",
-         \"server_id\": \"$SERVER_ID\"
-     }")
-
-# Parse the JSON response
-status=$(echo "$response" | jq -r '.status')
-message=$(echo "$response" | jq -r '.message')
-
-# Print the message in the appropriate color
-if [ "$status" = "success" ]; then
-    print_colored "green" "$message"
-else
-    print_colored "red" "$message"
 fi
 
 print_colored "green" "Uninstallation completed successfully."

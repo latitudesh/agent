@@ -20,17 +20,17 @@ handle_error() {
 }
 
 # Load environment variables
-if [ -f /etc/lsh-agent-env ]; then
-    source /etc/lsh-agent-env
+if [ -f /etc/lsh-agent/env ]; then
+    source /etc/lsh-agent/env
 else
     handle_error "Environment file not found. Please run install.sh first."
 fi
 
+PING_URL="https://api.latitude.sh/agent/ping"
+
 # Check for extra_parameters
 if [ -n "$EXTRA_PARAMETERS" ]; then
-    RETOOL_URL="https://maxihost.retool.com/url/ping${EXTRA_PARAMETERS}"
-else
-    RETOOL_URL="https://maxihost.retool.com/url/ping"
+    PING_URL="${PING_URL}${EXTRA_PARAMETERS}"
 fi
 
 # Import firewall_diff.sh
@@ -45,10 +45,10 @@ OUTPUT_FILE="/tmp/lsh_firewall.json"
 TEMP_FILE="/tmp/lsh_firewall_temp.json"
 
 # Perform the curl request and save the output to a temporary file
-HTTP_STATUS=$(curl -s -w "%{http_code}" -X POST \
-  --url "$RETOOL_URL" \
+HTTP_STATUS=$(curl -s -w "%{http_code}" -X GET \
+  --url "$PING_URL" \
   -H 'Content-Type: application/json' \
-  -d "{\"firewall_id\": \"$FIREWALL_ID\", \"project_id\": \"$PROJECT_ID\", \"server_id\": \"$SERVER_ID\"}" \
+  -d "{\"ip_address\": \"$PUBLIC_IP\"}" \
   -o "$TEMP_FILE")
 
 # Check if the curl request was successful (HTTP status 200)
