@@ -41,9 +41,9 @@ lowercase() {
 add_ufw_rules() {
     local rules="$1"
     echo "$rules" | while IFS= read -r rule; do
-        if [[ $rule =~ From:\ (.*),\ Protocol:\ (.*),\ Port:\ (.*) ]]; then
+        if [[ $rule =~ from:\ (.*),\ protocol:\ (.*),\ port:\ (.*) ]]; then
             local from="${BASH_REMATCH[1]}"
-            local proto=$(lowercase "${BASH_REMATCH[2]}")
+            local proto="${BASH_REMATCH[2]}"
             local port="${BASH_REMATCH[3]}"
 
             if sudo ufw status | grep -q "$port/$proto.*$from"; then
@@ -65,9 +65,9 @@ remove_ufw_rules() {
 
     echo "$rules" | while IFS= read -r rule; do
         echo "Debug: Processing rule: $rule"
-        if [[ $rule =~ From:\ (.*),\ Protocol:\ (.*),\ Port:\ (.*) ]]; then
+        if [[ $rule =~ from:\ (.*),\ protocol:\ (.*),\ port:\ (.*) ]]; then
             local from="${BASH_REMATCH[1]}"
-            local proto=$(lowercase "${BASH_REMATCH[2]}")
+            local proto="${BASH_REMATCH[2]}"
             local port="${BASH_REMATCH[3]}"
 
             local ufw_command="sudo ufw delete allow from $from to any port $port proto $proto"
@@ -95,26 +95,31 @@ firewall_diff() {
     api_rules=$(get_api_rules "$json_data" | sort -u)
     echo "$api_rules"
 
-    echo -e "\nRules to remove:"
-    echo "$ufw_rules"
-
-    if [ -n "$ufw_rules" ]; then
-        echo "Removing rules from UFW:"
-        remove_ufw_rules "$ufw_rules"
-        changes_made=true
-    else
-        echo "No rules to remove."
-    fi
+    echo -e "\nPerforming diff between existing UFW rules and API rules:"
+    local rules_to_add
+    local rules_to_remove
+    rules_to_add=$(comm -13 <(lowercase "$ufw_rules") <(lowercase "$api_rules"))
+    rules_to_remove=$(comm -23 <(lowercase "$ufw_rules") <(lowercase "$api_rules"))
 
     echo -e "\nRules to add:"
-    echo "$api_rules"
+    echo "$rules_to_add"
 
-    if [ -n "$api_rules" ]; then
+    if [ -n "$rules_to_add" ]; then
         echo -e "\nAdding new rules to UFW:"
-        add_ufw_rules "$api_rules"
+        add_ufw_rules "$rules_to_add"
         changes_made=true
     else
         echo "No new rules to add."
+    fi
+
+    echo -e "\nRules to remove:"
+    echo "$rules_to_remove"
+
+    if [ -n "$rules_to_remove" ]; then
+        echo "Removing rules from UFW:"
+        remove_ufw_rules "$rules_to_remove"
+    else
+        echo "No rules to remove."
     fi
 
     # Reload UFW only if changes were made
