@@ -1,0 +1,126 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g., v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Binaries
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            name: lsh-agent-linux-amd64
+          - goos: linux
+            goarch: arm64
+            name: lsh-agent-linux-arm64
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.22'
+
+      - name: Get dependencies
+        run: |
+          # Remove SDK dependency temporarily (until it's available)
+          sed -i '/latitudesh-go-sdk/d' go.mod
+          go mod tidy
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          go build -a -installsuffix cgo -ldflags="-w -s -X main.Version=${{ github.ref_name }}" -o ${{ matrix.name }} ./cmd/agent
+
+      - name: Upload binary as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: ${{ matrix.name }}
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./binaries
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          find ./binaries -name "lsh-agent-*" -type f -exec cp {} ./release/ \;
+          ls -la ./release/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.ref_name || github.event.inputs.tag }}
+          name: Release ${{ github.ref_name || github.event.inputs.tag }}
+          body: |
+            ## Latitude.sh Agent Release ${{ github.ref_name || github.event.inputs.tag }}
+            
+            ### Installation
+            
+            **Ubuntu/Debian:**
+            ```bash
+            curl -s https://raw.githubusercontent.com/latitudesh/agent/main/install.sh | sudo bash -s -- -firewall YOUR_FIREWALL_ID -project YOUR_PROJECT_ID
+            ```
+            
+            **Manual Installation:**
+            ```bash
+            # Download binary
+            curl -L -o lsh-agent https://github.com/latitudesh/agent/releases/download/${{ github.ref_name || github.event.inputs.tag }}/lsh-agent-linux-amd64
+            chmod +x lsh-agent
+            sudo mv lsh-agent /usr/local/bin/
+            ```
+            
+            ### What's New
+            - Go-based agent with improved performance
+            - Native UFW firewall rule synchronization
+            - Automatic rule diff and cleanup
+            - Systemd service integration
+            - Support for Ubuntu, Debian, RHEL, CentOS, AlmaLinux
+            
+            ### Binaries
+            - `lsh-agent-linux-amd64` - Linux x86_64
+            - `lsh-agent-linux-arm64` - Linux ARM64
+            
+            ### System Requirements
+            - Linux with UFW firewall
+            - systemd
+            - Root/sudo access
+            
+            ---
+            
+            **Full Changelog**: https://github.com/latitudesh/agent/compare/v0.1.0...${{ github.ref_name || github.event.inputs.tag }}
+          files: |
+            ./release/lsh-agent-linux-amd64
+            ./release/lsh-agent-linux-arm64
+          draft: false
+          prerelease: false
