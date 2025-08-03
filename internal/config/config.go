@@ -180,9 +180,7 @@ func validateConfig(config *Config) error {
 	if config.Latitude.FirewallID == "" {
 		return fmt.Errorf("FIREWALL_ID is required")
 	}
-	if config.Latitude.BearerToken == "" {
-		return fmt.Errorf("LATITUDESH_BEARER token is required")
-	}
+	// Bearer token is optional since /ping API is unauthenticated
 
 	// Validate UFW binary exists
 	if config.Firewall.Enabled {

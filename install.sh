@@ -145,8 +145,7 @@ echo "FIREWALL_ID=$FIREWALL_ID" > /etc/lsh-agent/env
 echo "PROJECT_ID=$PROJECT_ID" >> /etc/lsh-agent/env
 echo "PUBLIC_IP=$PUBLIC_IP" >> /etc/lsh-agent/env
 
-# Set LATITUDESH_BEARER token in service environment
-echo "Environment=LATITUDESH_BEARER=" >> /etc/systemd/system/lsh-agent.service
+# Note: LATITUDESH_BEARER token will be set via systemctl edit command after installation
 
 # Reload systemd, enable and start the service
 systemctl daemon-reload
@@ -154,6 +153,6 @@ systemctl enable lsh-agent.service
 systemctl start lsh-agent.service
 
 echo "Installation completed successfully."
-echo "
-IMPORTANT: Make sure you added the server to the firewall in the Latitude.sh dashboard.
-"
+echo ""
+echo "IMPORTANT: Make sure you added the server to the firewall in the Latitude.sh dashboard."
+echo "The agent will start monitoring firewall rules automatically."
