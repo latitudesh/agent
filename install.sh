@@ -81,36 +81,51 @@ else
 fi
 
 # Create directory structure
-mkdir -p /etc/lsh-agent/lib
+mkdir -p /etc/lsh-agent
 
-# Download and install rules.sh
-curl -s https://raw.githubusercontent.com/latitudesh/agent/main/rules.sh -o /etc/lsh-agent/rules.sh
-chmod +x /etc/lsh-agent/rules.sh
+# Download and install Go agent binary
+echo "Downloading Latitude.sh Agent binary..."
+curl -L -s https://github.com/latitudesh/agent/releases/latest/download/lsh-agent-linux-amd64 -o /usr/local/bin/lsh-agent
+chmod +x /usr/local/bin/lsh-agent
 
-# Download and install firewall_diff.sh
-curl -s https://raw.githubusercontent.com/latitudesh/agent/main/lib/firewall_diff.sh -o /etc/lsh-agent/lib/firewall_diff.sh
-chmod +x /etc/lsh-agent/lib/firewall_diff.sh
+# Download and install configuration
+curl -s https://raw.githubusercontent.com/latitudesh/agent/main/configs/agent.yaml -o /etc/lsh-agent/config.yaml
 
-# Download and install rule-fetch.service
-curl -s https://raw.githubusercontent.com/latitudesh/agent/main/rule-fetch.service -o /etc/systemd/system/rule-fetch.service
+# Create systemd service for Go agent
+cat > /etc/systemd/system/lsh-agent.service << 'EOF'
+[Unit]
+Description=Latitude.sh Agent
+After=network.target
+Wants=network.target
 
-# Update the service file to use the new path
-sed -i 's|ExecStart=/usr/local/bin/rules.sh|ExecStart=/etc/lsh-agent/rules.sh|' /etc/systemd/system/rule-fetch.service
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/lsh-agent -config /etc/lsh-agent/config.yaml
+Restart=always
+RestartSec=10
+User=root
+
+[Install]
+WantedBy=multi-user.target
+EOF
 
 # Get public IP address if PUBLIC_IP was not provided
 if [ -z "$PUBLIC_IP" ]; then
     PUBLIC_IP=$(hostname -I | awk '{print $1}')
 fi
 
-# Add firewall and project ID to the environment file
+# Create environment file for Go agent (backward compatibility)
 echo "FIREWALL_ID=$FIREWALL_ID" > /etc/lsh-agent/env
 echo "PROJECT_ID=$PROJECT_ID" >> /etc/lsh-agent/env
 echo "PUBLIC_IP=$PUBLIC_IP" >> /etc/lsh-agent/env
 
+# Set LATITUDESH_BEARER token in service environment
+echo "Environment=LATITUDESH_BEARER=" >> /etc/systemd/system/lsh-agent.service
+
 # Reload systemd, enable and start the service
 systemctl daemon-reload
-systemctl enable rule-fetch.service
-systemctl start rule-fetch.service
+systemctl enable lsh-agent.service
+systemctl start lsh-agent.service
 
 echo "Installation completed successfully."
 echo "
