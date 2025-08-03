@@ -236,8 +236,11 @@ func (fc *FirewallCollector) addUFWRule(ctx context.Context, rule FirewallRule) 
 		from = "any"
 	}
 
+	// UFW requires lowercase protocol names
+	protocol := strings.ToLower(rule.Protocol)
+
 	cmd := exec.CommandContext(ctx, "sudo", fc.ufwBinary, "allow", 
-		"proto", rule.Protocol, 
+		"proto", protocol, 
 		"from", from, 
 		"to", "any", 
 		"port", rule.Port)
@@ -257,11 +260,14 @@ func (fc *FirewallCollector) removeUFWRule(ctx context.Context, rule FirewallRul
 		from = "any"
 	}
 
+	// UFW requires lowercase protocol names
+	protocol := strings.ToLower(rule.Protocol)
+
 	cmd := exec.CommandContext(ctx, "sudo", fc.ufwBinary, "delete", "allow",
 		"from", from,
 		"to", "any",
 		"port", rule.Port,
-		"proto", rule.Protocol)
+		"proto", protocol)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
