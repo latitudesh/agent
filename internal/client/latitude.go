@@ -9,19 +9,18 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/latitudesh/latitudesh-go-sdk"
 	"github.com/sirupsen/logrus"
 )
 
 // LatitudeClient handles communication with Latitude.sh API
 type LatitudeClient struct {
-	sdk        *latitudeshgosdk.LatitudeshGoSDK
-	httpClient *http.Client
+	httpClient  *http.Client
 	apiEndpoint string
-	projectID  string
-	firewallID string
-	publicIP   string
-	logger     *logrus.Logger
+	bearerToken string
+	projectID   string
+	firewallID  string
+	publicIP    string
+	logger      *logrus.Logger
 }
 
 // PingRequest represents the request structure for the ping endpoint
@@ -45,15 +44,10 @@ type FirewallRule struct {
 
 // NewLatitudeClient creates a new Latitude.sh API client
 func NewLatitudeClient(bearerToken, apiEndpoint, projectID, firewallID, publicIP string, logger *logrus.Logger) *LatitudeClient {
-	// Initialize the official SDK
-	sdk := latitudeshgosdk.New(
-		latitudeshgosdk.WithSecurity(bearerToken),
-	)
-
 	return &LatitudeClient{
-		sdk:         sdk,
 		httpClient:  &http.Client{},
 		apiEndpoint: apiEndpoint,
+		bearerToken: bearerToken,
 		projectID:   projectID,
 		firewallID:  firewallID,
 		publicIP:    publicIP,
@@ -83,9 +77,10 @@ func (lc *LatitudeClient) PingAndGetFirewallRules(ctx context.Context) (string, 
 
 	// Set headers
 	req.Header.Set("Content-Type", "application/json")
-	if lc.sdk != nil {
-		// Use bearer token from SDK configuration
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", os.Getenv("LATITUDESH_BEARER")))
+	if lc.bearerToken != "" {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", lc.bearerToken))
+	} else if token := os.Getenv("LATITUDESH_BEARER"); token != "" {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 	}
 
 	// Execute request
@@ -127,18 +122,9 @@ func (lc *LatitudeClient) ValidateFirewallResponse(responseBody string) error {
 	return nil
 }
 
-// GetProjectDetails retrieves project details using the official SDK
+// GetProjectDetails retrieves project details (placeholder for future SDK integration)
 func (lc *LatitudeClient) GetProjectDetails(ctx context.Context) error {
-	if lc.sdk == nil {
-		return fmt.Errorf("SDK not initialized")
-	}
-
-	lc.logger.Info("Retrieving project details via SDK")
-	
-	// This is a placeholder for SDK usage - adjust based on actual SDK methods
-	// For now, we'll just log that we have SDK access
-	lc.logger.Info("SDK initialized and ready for project operations")
-	
+	lc.logger.Info("Project details retrieval - SDK integration pending")
 	return nil
 }
 
@@ -151,7 +137,11 @@ func (lc *LatitudeClient) HealthCheck(ctx context.Context) error {
 		return fmt.Errorf("failed to create health check request: %w", err)
 	}
 
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", os.Getenv("LATITUDESH_BEARER")))
+	if lc.bearerToken != "" {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", lc.bearerToken))
+	} else if token := os.Getenv("LATITUDESH_BEARER"); token != "" {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
+	}
 
 	resp, err := lc.httpClient.Do(req)
 	if err != nil {
