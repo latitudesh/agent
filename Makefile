@@ -75,23 +75,21 @@ uninstall:
 .PHONY: create-service
 create-service:
 	@echo "Creating systemd service..."
-	@sudo tee /etc/systemd/system/lsh-agent-go.service > /dev/null <<EOF
-[Unit]
-Description=Latitude.sh Agent (Go)
-After=network.target
-Wants=network.target
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/$(BINARY_NAME) -config /etc/lsh-agent/config.yaml
-Restart=always
-RestartSec=10
-User=root
-Environment=LATITUDESH_BEARER=""
-
-[Install]
-WantedBy=multi-user.target
-EOF
+	@echo '[Unit]' | sudo tee /etc/systemd/system/lsh-agent-go.service > /dev/null
+	@echo 'Description=Latitude.sh Agent (Go)' | sudo tee -a /etc/systemd/system/lsh-agent-go.service > /dev/null
+	@echo 'After=network.target' | sudo tee -a /etc/systemd/system/lsh-agent-go.service > /dev/null
+	@echo 'Wants=network.target' | sudo tee -a /etc/systemd/system/lsh-agent-go.service > /dev/null
+	@echo '' | sudo tee -a /etc/systemd/system/lsh-agent-go.service > /dev/null
+	@echo '[Service]' | sudo tee -a /etc/systemd/system/lsh-agent-go.service > /dev/null
+	@echo 'Type=simple' | sudo tee -a /etc/systemd/system/lsh-agent-go.service > /dev/null
+	@echo 'ExecStart=/usr/local/bin/$(BINARY_NAME) -config /etc/lsh-agent/config.yaml' | sudo tee -a /etc/systemd/system/lsh-agent-go.service > /dev/null
+	@echo 'Restart=always' | sudo tee -a /etc/systemd/system/lsh-agent-go.service > /dev/null
+	@echo 'RestartSec=10' | sudo tee -a /etc/systemd/system/lsh-agent-go.service > /dev/null
+	@echo 'User=root' | sudo tee -a /etc/systemd/system/lsh-agent-go.service > /dev/null
+	@echo 'Environment=LATITUDESH_BEARER=""' | sudo tee -a /etc/systemd/system/lsh-agent-go.service > /dev/null
+	@echo '' | sudo tee -a /etc/systemd/system/lsh-agent-go.service > /dev/null
+	@echo '[Install]' | sudo tee -a /etc/systemd/system/lsh-agent-go.service > /dev/null
+	@echo 'WantedBy=multi-user.target' | sudo tee -a /etc/systemd/system/lsh-agent-go.service > /dev/null
 	@sudo systemctl daemon-reload
 	@echo "Service created. Configure environment variables and enable with:"
 	@echo "  sudo systemctl enable lsh-agent-go"
