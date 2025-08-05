@@ -145,7 +145,33 @@ chmod +x /usr/local/bin/lsh-agent
 cp configs/agent.yaml /etc/lsh-agent/config.yaml
 
 # Install Telegraf configuration
-cp configs/telegraf.conf /etc/lsh-agent/telegraf.conf
+if [ -f "configs/telegraf.conf" ]; then
+    cp configs/telegraf.conf /etc/lsh-agent/telegraf.conf
+else
+    echo "Warning: configs/telegraf.conf not found, creating basic configuration"
+    cat > /etc/lsh-agent/telegraf.conf << 'EOF'
+# Basic Telegraf Configuration
+[agent]
+  interval = "30s"
+  
+[[inputs.cpu]]
+[[inputs.mem]]
+[[inputs.disk]]
+[[inputs.net]]
+
+[[outputs.http]]
+  url = "${LATITUDESH_METRICS_ENDPOINT}"
+  method = "POST"
+  timeout = "10s"
+  [outputs.http.headers]
+    Content-Type = "application/json"
+    Authorization = "Bearer ${LATITUDESH_BEARER}"
+    X-Project-ID = "${PROJECT_ID}"
+    X-Firewall-ID = "${FIREWALL_ID}"
+  data_format = "json"
+  json_timestamp_format = "unix"
+EOF
+fi
 
 # Cleanup
 cd /
