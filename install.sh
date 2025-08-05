@@ -68,6 +68,37 @@ for pkg in curl ufw jq git; do
     fi
 done
 
+# Install Telegraf if not present
+if ! command -v telegraf &>/dev/null; then
+    echo "Installing Telegraf..."
+    
+    # Add InfluxData repository and install Telegraf
+    if command -v apt-get &> /dev/null; then
+        # Ubuntu/Debian
+        curl -s https://repos.influxdata.com/influxdata-archive_compat.key | gpg --dearmor > /etc/apt/trusted.gpg.d/influxdata-archive_compat.gpg
+        echo 'deb [signed-by=/etc/apt/trusted.gpg.d/influxdata-archive_compat.gpg] https://repos.influxdata.com/debian stable main' > /etc/apt/sources.list.d/influxdata.list
+        apt-get update && apt-get install -y telegraf
+    elif command -v yum &> /dev/null; then
+        # RHEL/CentOS
+        cat > /etc/yum.repos.d/influxdata.repo << 'EOF'
+[influxdata]
+name = InfluxData Repository - Stable
+baseurl = https://repos.influxdata.com/stable/\$basearch/main
+enabled = 1
+gpgcheck = 1
+gpgkey = https://repos.influxdata.com/influxdata-archive_compat.key
+EOF
+        yum install -y telegraf
+    else
+        echo "Unable to install Telegraf. Please install it manually."
+        exit 1
+    fi
+    
+    echo "Telegraf installed successfully."
+else
+    echo "Telegraf is already installed: $(telegraf version)"
+fi
+
 # Enable UFW if it's not active
 if ! ufw status | grep -q "Status: active"; then
     echo "Enabling Firewall..."
@@ -113,6 +144,9 @@ cp lsh-agent /usr/local/bin/
 chmod +x /usr/local/bin/lsh-agent
 cp configs/agent.yaml /etc/lsh-agent/config.yaml
 
+# Install Telegraf configuration
+cp configs/telegraf.conf /etc/lsh-agent/telegraf.conf
+
 # Cleanup
 cd /
 rm -rf /tmp/agent
@@ -145,14 +179,46 @@ echo "FIREWALL_ID=$FIREWALL_ID" > /etc/lsh-agent/env
 echo "PROJECT_ID=$PROJECT_ID" >> /etc/lsh-agent/env
 echo "PUBLIC_IP=$PUBLIC_IP" >> /etc/lsh-agent/env
 
+# Create environment file for Telegraf
+echo "PROJECT_ID=$PROJECT_ID" > /etc/lsh-agent/telegraf.env
+echo "FIREWALL_ID=$FIREWALL_ID" >> /etc/lsh-agent/telegraf.env
+echo "PUBLIC_IP=$PUBLIC_IP" >> /etc/lsh-agent/telegraf.env
+echo "AGENT_VERSION=1.0.0" >> /etc/lsh-agent/telegraf.env
+echo "LATITUDESH_METRICS_ENDPOINT=https://api.latitude.sh/metrics" >> /etc/lsh-agent/telegraf.env
+
+# Set additional parameters if provided
+if [ -n "$EXTRA_PARAMETERS" ]; then
+    echo "$EXTRA_PARAMETERS" >> /etc/lsh-agent/telegraf.env
+fi
+
 # Note: LATITUDESH_BEARER token will be set via systemctl edit command after installation
 
-# Reload systemd, enable and start the service
+# Create systemd service override for Telegraf
+mkdir -p /etc/systemd/system/telegraf.service.d
+cat > /etc/systemd/system/telegraf.service.d/override.conf << 'EOF'
+[Service]
+EnvironmentFile=/etc/lsh-agent/telegraf.env
+ExecStart=
+ExecStart=/usr/bin/telegraf --config /etc/lsh-agent/telegraf.conf
+EOF
+
+# Reload systemd, enable and start the services
 systemctl daemon-reload
 systemctl enable lsh-agent.service
+systemctl enable telegraf.service
 systemctl start lsh-agent.service
+systemctl start telegraf.service
 
 echo "Installation completed successfully."
 echo ""
 echo "IMPORTANT: Make sure you added the server to the firewall in the Latitude.sh dashboard."
 echo "The agent will start monitoring firewall rules automatically."
+echo ""
+echo "Services status:"
+echo "- Latitude.sh Agent: $(systemctl is-active lsh-agent.service)"
+echo "- Telegraf Metrics: $(systemctl is-active telegraf.service)"
+echo ""
+echo "To set the bearer token for both services:"
+echo "  systemctl edit lsh-agent.service"
+echo "  systemctl edit telegraf.service"
+echo "  Add: Environment=\"LATITUDESH_BEARER=your_token_here\""

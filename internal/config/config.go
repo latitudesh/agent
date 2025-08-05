@@ -26,11 +26,12 @@ type AgentConfig struct {
 
 // LatitudeConfig contains Latitude.sh API configuration
 type LatitudeConfig struct {
-	APIEndpoint string `yaml:"api_endpoint" default:"https://api.latitude.sh/agent/ping"`
-	BearerToken string `yaml:"bearer_token"`
-	ProjectID   string `yaml:"project_id"`
-	FirewallID  string `yaml:"firewall_id"`
-	PublicIP    string `yaml:"public_ip"`
+	APIEndpoint     string `yaml:"api_endpoint" default:"https://api.latitude.sh/agent/ping"`
+	BearerToken     string `yaml:"bearer_token"`
+	ProjectID       string `yaml:"project_id"`
+	FirewallID      string `yaml:"firewall_id"`
+	PublicIP        string `yaml:"public_ip"`
+	MetricsEndpoint string `yaml:"metrics_endpoint" default:"https://api.latitude.sh/metrics"`
 }
 
 // FirewallConfig contains firewall-specific settings
@@ -56,6 +57,7 @@ func LoadConfig(configPath string) (*Config, error) {
 	config.Agent.Interval = "30s"
 	config.Agent.LogLevel = "info"
 	config.Latitude.APIEndpoint = "https://api.latitude.sh/agent/ping"
+	config.Latitude.MetricsEndpoint = "https://api.latitude.sh/metrics"
 	config.Firewall.Enabled = true
 	config.Firewall.UFWBinary = "/usr/sbin/ufw"
 	config.Firewall.CaseSensitive = false
@@ -154,6 +156,9 @@ func loadFromEnv(config *Config) {
 	}
 	if val := os.Getenv("PUBLIC_IP"); val != "" {
 		config.Latitude.PublicIP = val
+	}
+	if val := os.Getenv("LATITUDESH_METRICS_ENDPOINT"); val != "" {
+		config.Latitude.MetricsEndpoint = val
 	}
 	if val := os.Getenv("AGENT_INTERVAL"); val != "" {
 		config.Agent.Interval = val

@@ -20,6 +20,8 @@ latitude:
   firewall_id: ""
   # Public IP address (auto-detected if not specified)
   public_ip: ""
+  # Metrics endpoint for Telegraf (optional, defaults to api.latitude.sh/metrics)
+  metrics_endpoint: "https://api.latitude.sh/metrics"
 
 # Firewall collector configuration
 firewall:
