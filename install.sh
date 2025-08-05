@@ -140,6 +140,13 @@ export PATH=$PATH:/usr/local/go/bin
 /usr/local/go/bin/go build -o lsh-agent ./cmd/agent
 
 # Install binary and config
+# Stop services if they're running to avoid "Text file busy" error
+if systemctl is-active --quiet lsh-agent.service; then
+    echo "Stopping lsh-agent service for binary update..."
+    systemctl stop lsh-agent.service
+    RESTART_AGENT=true
+fi
+
 cp lsh-agent /usr/local/bin/
 chmod +x /usr/local/bin/lsh-agent
 cp configs/agent.yaml /etc/lsh-agent/config.yaml
@@ -232,7 +239,15 @@ EOF
 systemctl daemon-reload
 systemctl enable lsh-agent.service
 systemctl enable telegraf.service
-systemctl start lsh-agent.service
+
+# Start lsh-agent (or restart if it was stopped)
+if [ "$RESTART_AGENT" = "true" ]; then
+    echo "Restarting lsh-agent service..."
+    systemctl restart lsh-agent.service
+else
+    systemctl start lsh-agent.service
+fi
+
 systemctl start telegraf.service
 
 echo "Installation completed successfully."
