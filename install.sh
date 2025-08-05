@@ -160,6 +160,14 @@ else
 # Basic Telegraf Configuration
 [agent]
   interval = "30s"
+
+# Global tags for server identification
+[global_tags]
+  project_id = "${PROJECT_ID}"
+  firewall_id = "${FIREWALL_ID}"
+  public_ip = "${PUBLIC_IP}"
+  agent_version = "${AGENT_VERSION}"
+  environment = "production"
   
 [[inputs.cpu]]
 [[inputs.mem]]
