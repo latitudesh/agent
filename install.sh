@@ -170,13 +170,9 @@ else
   url = "${LATITUDESH_METRICS_ENDPOINT}"
   method = "POST"
   timeout = "10s"
-  [outputs.http.headers]
-    Content-Type = "application/json"
-    Authorization = "Bearer ${LATITUDESH_BEARER}"
-    X-Project-ID = "${PROJECT_ID}"
-    X-Firewall-ID = "${FIREWALL_ID}"
+  headers = {"Content-Type" = "application/json", "Authorization" = "Bearer ${LATITUDESH_BEARER}", "X-Project-ID" = "${PROJECT_ID}", "X-Firewall-ID" = "${FIREWALL_ID}"}
   data_format = "json"
-  json_timestamp_format = "unix"
+  json_timestamp_format = "unix_ms"
 EOF
 fi
 
