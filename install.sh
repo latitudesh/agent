@@ -84,14 +84,25 @@ fi
 mkdir -p /etc/lsh-agent
 
 # Install Go if not present
-if ! command -v go &> /dev/null; then
-    echo "Installing Go..."
-    cd /tmp
-    curl -L -s https://golang.org/dl/go1.22.0.linux-amd64.tar.gz -o go.tar.gz
-    tar -C /usr/local -xzf go.tar.gz
-    export PATH=$PATH:/usr/local/go/bin
-    rm go.tar.gz
+if ! command -v go &>/dev/null; then
+  GO_VERSION="1.22.0"
+  GO_PACKAGE="go${GO_VERSION}.linux-amd64.tar.gz"
+
+  echo "Installing Go..."
+  cd /tmp
+  curl -L -s https://golang.org/dl/${GO_PACKAGE} -o go.tar.gz
+  tar -C /usr/local -xzf go.tar.gz
+
+  echo 'export PATH=$PATH:/usr/local/go/bin' >> /etc/profile
+  export PATH=$PATH:/usr/local/go/bin
+
+  rm go.tar.gz
+
+  echo "Go $GO_VERSION installed successfully."
+else
+  echo "Go is already installed: $(go version)"
 fi
+
 
 # Build and install Go agent from source
 echo "Building Latitude.sh Agent from source..."
