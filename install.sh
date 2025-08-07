@@ -156,7 +156,7 @@ echo "FIREWALL_ID=$FIREWALL_ID" > /etc/lsh-agent/env
 echo "PROJECT_ID=$PROJECT_ID" >> /etc/lsh-agent/env
 echo "PUBLIC_IP=$PUBLIC_IP" >> /etc/lsh-agent/env
 
-# Note: LATITUDESH_BEARER token will be set via systemctl edit command after installation
+# Note: LATITUDESH_AUTH_TOKEN token will be set via systemctl edit command after installation
 
 # Reload systemd, enable and start the service
 systemctl daemon-reload

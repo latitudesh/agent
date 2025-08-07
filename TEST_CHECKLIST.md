@@ -6,7 +6,7 @@
 - [ ] Git installed and feat/go branch cloned
 - [ ] Go 1.22+ installed (for building from source)
 - [ ] Environment variables prepared:
-  - [ ] `LATITUDESH_BEARER` token
+  - [ ] `LATITUDESH_AUTH_TOKEN` token
   - [ ] `PROJECT_ID` from dashboard
   - [ ] `FIREWALL_ID` from dashboard
 

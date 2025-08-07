@@ -86,7 +86,7 @@ create-service:
 	@echo 'Restart=always' | sudo tee -a /etc/systemd/system/lsh-agent-go.service > /dev/null
 	@echo 'RestartSec=10' | sudo tee -a /etc/systemd/system/lsh-agent-go.service > /dev/null
 	@echo 'User=root' | sudo tee -a /etc/systemd/system/lsh-agent-go.service > /dev/null
-	@echo 'Environment=LATITUDESH_BEARER=""' | sudo tee -a /etc/systemd/system/lsh-agent-go.service > /dev/null
+	@echo 'Environment=LATITUDESH_AUTH_TOKEN=""' | sudo tee -a /etc/systemd/system/lsh-agent-go.service > /dev/null
 	@echo '' | sudo tee -a /etc/systemd/system/lsh-agent-go.service > /dev/null
 	@echo '[Install]' | sudo tee -a /etc/systemd/system/lsh-agent-go.service > /dev/null
 	@echo 'WantedBy=multi-user.target' | sudo tee -a /etc/systemd/system/lsh-agent-go.service > /dev/null

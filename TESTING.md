@@ -10,7 +10,7 @@
 
 2. **Required Environment Variables**:
    ```bash
-   export LATITUDESH_BEARER="your_bearer_token_here"
+   export LATITUDESH_AUTH_TOKEN="your_bearer_token_here"
    export PROJECT_ID="your_project_id"
    export FIREWALL_ID="your_firewall_id"
    export PUBLIC_IP="auto"  # or specific IP
@@ -48,7 +48,7 @@ PUBLIC_IP=auto
 EOF
 
 # Set required environment variables
-export LATITUDESH_BEARER="your_bearer_token_here"
+export LATITUDESH_AUTH_TOKEN="your_bearer_token_here"
 ```
 
 ### Step 3: Basic Testing
@@ -125,7 +125,7 @@ sudo make create-service
 sudo systemctl edit lsh-agent-go
 # Add:
 # [Service]
-# Environment=LATITUDESH_BEARER=your_token_here
+# Environment=LATITUDESH_AUTH_TOKEN=your_token_here
 
 # Start service
 sudo systemctl enable lsh-agent-go
@@ -165,7 +165,7 @@ INFO[2024-XX-XX] Collection cycle completed successfully in 2.3s component=agent
    ```
 
 2. **"API request failed with status 401"**:
-   - Check LATITUDESH_BEARER token
+   - Check LATITUDESH_AUTH_TOKEN token
    - Verify token has correct permissions
 
 3. **"Project ID is required"**:

@@ -143,7 +143,7 @@ func loadFromLegacyEnv(config *Config) error {
 
 // loadFromEnv loads configuration from environment variables
 func loadFromEnv(config *Config) {
-	if val := os.Getenv("LATITUDESH_BEARER"); val != "" {
+	if val := os.Getenv("LATITUDESH_AUTH_TOKEN"); val != "" {
 		config.Latitude.BearerToken = val
 	}
 	if val := os.Getenv("PROJECT_ID"); val != "" {

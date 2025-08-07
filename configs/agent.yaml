@@ -12,7 +12,7 @@ agent:
 latitude:
   # API endpoint for agent communication
   api_endpoint: "https://api.latitude.sh/agent/ping"
-  # Bearer token for API authentication (set via LATITUDESH_BEARER env var)
+  # Bearer token for API authentication (set via LATITUDESH_AUTH_TOKEN env var)
   bearer_token: ""
   # Project ID from Latitude.sh dashboard (set via PROJECT_ID env var)
   project_id: ""

@@ -79,7 +79,7 @@ func (lc *LatitudeClient) PingAndGetFirewallRules(ctx context.Context) (string, 
 	req.Header.Set("Content-Type", "application/json")
 	if lc.bearerToken != "" {
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", lc.bearerToken))
-	} else if token := os.Getenv("LATITUDESH_BEARER"); token != "" {
+	} else if token := os.Getenv("LATITUDESH_AUTH_TOKEN"); token != "" {
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 	}
 
@@ -139,7 +139,7 @@ func (lc *LatitudeClient) HealthCheck(ctx context.Context) error {
 
 	if lc.bearerToken != "" {
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", lc.bearerToken))
-	} else if token := os.Getenv("LATITUDESH_BEARER"); token != "" {
+	} else if token := os.Getenv("LATITUDESH_AUTH_TOKEN"); token != "" {
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 	}
 
