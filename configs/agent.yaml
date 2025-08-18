@@ -1,0 +1,42 @@
+# Latitude.sh Agent Configuration
+# This file provides default configuration values
+# Environment variables and /etc/lsh-agent/env will override these settings
+
+agent:
+  # Collection interval (duration format: 30s, 1m, 5m, etc.)
+  interval: "30s"
+  # Log level: debug, info, warn, error
+  log_level: "info"
+
+# Latitude.sh API configuration
+latitude:
+  # API endpoint for agent communication
+  api_endpoint: "https://api.latitude.sh/agent/ping"
+  # Bearer token for API authentication (set via LATITUDESH_AUTH_TOKEN env var)
+  bearer_token: ""
+  # Project ID from Latitude.sh dashboard (set via PROJECT_ID env var)
+  project_id: ""
+  # Firewall ID from Latitude.sh dashboard (set via FIREWALL_ID env var)
+  firewall_id: ""
+  # Public IP address (auto-detected if not specified)
+  public_ip: ""
+
+# Firewall collector configuration
+firewall:
+  # Enable/disable firewall rule synchronization
+  enabled: true
+  # Path to UFW binary
+  ufw_binary: "/usr/sbin/ufw"
+  # Case sensitive rule matching (recommended: false)
+  case_sensitive: false
+  # Temporary file for API responses
+  temp_file: "/tmp/lsh_firewall_temp.json"
+  # Output file for processed rules
+  output_file: "/tmp/lsh_firewall.json"
+
+# Logging configuration
+logging:
+  # Log level: debug, info, warn, error
+  level: "info"
+  # Log format: text, json
+  format: "text"

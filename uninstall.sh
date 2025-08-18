@@ -34,12 +34,23 @@ fi
 
 # Stop and disable the service
 print_colored "yellow" "Stopping and disabling the service..."
-systemctl stop rule-fetch.service
-systemctl disable rule-fetch.service
 
-# Remove service file
+# Check for and handle legacy service name for backwards compatibility
+if systemctl status "rule-fetch.service" &>/dev/null; then
+    systemctl stop rule-fetch.service
+    systemctl disable rule-fetch.service
+    
+    rm -f /etc/systemd/system/rule-fetch.service
+else
+    # Handle current service name
+    systemctl stop lsh-agent.service
+    systemctl disable lsh-agent.service
+fi
+
+# Remove service file and binary
 print_colored "yellow" "Removing files..."
-rm -f /etc/systemd/system/rule-fetch.service
+rm -f /etc/systemd/system/lsh-agent.service
+rm -f /usr/local/bin/lsh-agent
 # Remove agent files
 rm -rf /etc/lsh-agent
 

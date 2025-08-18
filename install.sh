@@ -81,38 +81,89 @@ else
 fi
 
 # Create directory structure
-mkdir -p /etc/lsh-agent/lib
+mkdir -p /etc/lsh-agent
 
-# Download and install rules.sh
-curl -s https://raw.githubusercontent.com/latitudesh/agent/main/rules.sh -o /etc/lsh-agent/rules.sh
-chmod +x /etc/lsh-agent/rules.sh
+# Install Go if not present
+if ! command -v go &>/dev/null; then
+  GO_VERSION="1.22.0"
+  GO_PACKAGE="go${GO_VERSION}.linux-amd64.tar.gz"
 
-# Download and install firewall_diff.sh
-curl -s https://raw.githubusercontent.com/latitudesh/agent/main/lib/firewall_diff.sh -o /etc/lsh-agent/lib/firewall_diff.sh
-chmod +x /etc/lsh-agent/lib/firewall_diff.sh
+  echo "Installing Go..."
+  cd /tmp
+  curl -L -s https://golang.org/dl/${GO_PACKAGE} -o go.tar.gz
+  tar -C /usr/local -xzf go.tar.gz
 
-# Download and install rule-fetch.service
-curl -s https://raw.githubusercontent.com/latitudesh/agent/main/rule-fetch.service -o /etc/systemd/system/rule-fetch.service
+  echo 'export PATH=$PATH:/usr/local/go/bin' >> /etc/profile
+  export PATH=$PATH:/usr/local/go/bin
 
-# Update the service file to use the new path
-sed -i 's|ExecStart=/usr/local/bin/rules.sh|ExecStart=/etc/lsh-agent/rules.sh|' /etc/systemd/system/rule-fetch.service
+  rm go.tar.gz
+
+  echo "Go $GO_VERSION installed successfully."
+else
+  echo "Go is already installed: $(go version)"
+fi
+
+
+# Build and install Go agent from source
+echo "Building Latitude.sh Agent from source..."
+cd /tmp
+rm -rf agent
+git clone -b feat/go https://github.com/latitudesh/agent.git
+cd agent
+
+# Remove problematic SDK dependency temporarily
+sed -i '/latitudesh-go-sdk/d' go.mod
+
+# Build the agent
+export PATH=$PATH:/usr/local/go/bin
+/usr/local/go/bin/go mod tidy
+/usr/local/go/bin/go build -o lsh-agent ./cmd/agent
+
+# Install binary and config
+cp lsh-agent /usr/local/bin/
+chmod +x /usr/local/bin/lsh-agent
+cp configs/agent.yaml /etc/lsh-agent/config.yaml
+
+# Cleanup
+cd /
+rm -rf /tmp/agent
+
+# Create systemd service for Go agent
+cat > /etc/systemd/system/lsh-agent.service << 'EOF'
+[Unit]
+Description=Latitude.sh Agent
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/lsh-agent -config /etc/lsh-agent/config.yaml
+Restart=always
+RestartSec=10
+User=root
+
+[Install]
+WantedBy=multi-user.target
+EOF
 
 # Get public IP address if PUBLIC_IP was not provided
 if [ -z "$PUBLIC_IP" ]; then
     PUBLIC_IP=$(hostname -I | awk '{print $1}')
 fi
 
-# Add firewall and project ID to the environment file
+# Create environment file for Go agent (backward compatibility)
 echo "FIREWALL_ID=$FIREWALL_ID" > /etc/lsh-agent/env
 echo "PROJECT_ID=$PROJECT_ID" >> /etc/lsh-agent/env
 echo "PUBLIC_IP=$PUBLIC_IP" >> /etc/lsh-agent/env
 
+# Note: LATITUDESH_AUTH_TOKEN token will be set via systemctl edit command after installation
+
 # Reload systemd, enable and start the service
 systemctl daemon-reload
-systemctl enable rule-fetch.service
-systemctl start rule-fetch.service
+systemctl enable lsh-agent.service
+systemctl start lsh-agent.service
 
 echo "Installation completed successfully."
-echo "
-IMPORTANT: Make sure you added the server to the firewall in the Latitude.sh dashboard.
-"
+echo ""
+echo "IMPORTANT: Make sure you added the server to the firewall in the Latitude.sh dashboard."
+echo "The agent will start monitoring firewall rules automatically."
