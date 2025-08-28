@@ -85,7 +85,7 @@ mkdir -p /etc/lsh-agent
 
 # Install Go if not present
 if ! command -v go &>/dev/null; then
-  GO_VERSION="1.22.0"
+  GO_VERSION="1.23.0"
   GO_PACKAGE="go${GO_VERSION}.linux-amd64.tar.gz"
 
   echo "Installing Go..."
@@ -108,7 +108,7 @@ fi
 echo "Building Latitude.sh Agent from source..."
 cd /tmp
 rm -rf agent
-git clone -b feat/go https://github.com/latitudesh/agent.git
+git clone https://github.com/latitudesh/agent.git
 cd agent
 
 # Remove problematic SDK dependency temporarily
