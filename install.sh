@@ -85,7 +85,7 @@ mkdir -p /etc/lsh-agent
 
 # Install Go if not present
 if ! command -v go &>/dev/null; then
-  GO_VERSION="1.23.0"
+  GO_VERSION="1.23.4"
   GO_PACKAGE="go${GO_VERSION}.linux-amd64.tar.gz"
 
   echo "Installing Go..."
