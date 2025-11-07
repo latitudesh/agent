@@ -34,6 +34,21 @@ firewall:
   # Output file for processed rules
   output_file: "/tmp/lsh_firewall.json"
 
+# Health monitoring configuration
+health:
+  # Enable/disable health monitoring
+  enabled: true
+  # Health check interval (can be different from firewall sync)
+  interval: "60s"
+  # Include detailed metrics
+  detailed: true
+  # Enable SMART disk monitoring
+  smart_monitoring: true
+  # IPMI monitoring
+  ipmi_monitoring: true
+  # Network connectivity tests
+  connectivity_tests: true
+
 # Logging configuration
 logging:
   # Log level: debug, info, warn, error

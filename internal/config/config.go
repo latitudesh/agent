@@ -15,6 +15,7 @@ type Config struct {
 	Agent    AgentConfig    `yaml:"agent"`
 	Latitude LatitudeConfig `yaml:"latitude"`
 	Firewall FirewallConfig `yaml:"firewall"`
+	Health   HealthConfig   `yaml:"health"`
 	Logging  LoggingConfig  `yaml:"logging"`
 }
 
@@ -35,11 +36,11 @@ type LatitudeConfig struct {
 
 // FirewallConfig contains firewall-specific settings
 type FirewallConfig struct {
-	Enabled         bool   `yaml:"enabled" default:"true"`
-	UFWBinary       string `yaml:"ufw_binary" default:"/usr/sbin/ufw"`
-	CaseSensitive   bool   `yaml:"case_sensitive" default:"false"`
-	TempFile        string `yaml:"temp_file" default:"/tmp/lsh_firewall_temp.json"`
-	OutputFile      string `yaml:"output_file" default:"/tmp/lsh_firewall.json"`
+	Enabled       bool   `yaml:"enabled" default:"true"`
+	UFWBinary     string `yaml:"ufw_binary" default:"/usr/sbin/ufw"`
+	CaseSensitive bool   `yaml:"case_sensitive" default:"false"`
+	TempFile      string `yaml:"temp_file" default:"/tmp/lsh_firewall_temp.json"`
+	OutputFile    string `yaml:"output_file" default:"/tmp/lsh_firewall.json"`
 }
 
 // LoggingConfig contains logging configuration
@@ -48,10 +49,20 @@ type LoggingConfig struct {
 	Format string `yaml:"format" default:"text"`
 }
 
+// HealthConfig contains health monitoring settings
+type HealthConfig struct {
+	Enabled           bool   `yaml:"enabled" default:"true"`
+	Interval          string `yaml:"interval" default:"60s"`
+	Detailed          bool   `yaml:"detailed" default:"true"`
+	SmartMonitoring   bool   `yaml:"smart_monitoring" default:"true"`
+	IPMIMonitoring    bool   `yaml:"ipmi_monitoring" default:"true"`
+	ConnectivityTests bool   `yaml:"connectivity_tests" default:"true"`
+}
+
 // LoadConfig loads configuration from file and environment variables
 func LoadConfig(configPath string) (*Config, error) {
 	config := &Config{}
-	
+
 	// Set defaults
 	config.Agent.Interval = "30s"
 	config.Agent.LogLevel = "info"
@@ -61,6 +72,12 @@ func LoadConfig(configPath string) (*Config, error) {
 	config.Firewall.CaseSensitive = false
 	config.Firewall.TempFile = "/tmp/lsh_firewall_temp.json"
 	config.Firewall.OutputFile = "/tmp/lsh_firewall.json"
+	config.Health.Enabled = true
+	config.Health.Interval = "60s"
+	config.Health.Detailed = true
+	config.Health.SmartMonitoring = true
+	config.Health.IPMIMonitoring = true
+	config.Health.ConnectivityTests = true
 	config.Logging.Level = "info"
 	config.Logging.Format = "text"
 

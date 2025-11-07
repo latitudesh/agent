@@ -8,7 +8,9 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 
+	"github.com/latitudesh/agent/internal/collectors"
 	"github.com/sirupsen/logrus"
 )
 
@@ -184,4 +186,46 @@ func (lc *LatitudeClient) GetFirewallRulesForDisplay(responseBody string) ([]str
 	}
 
 	return displayRules, nil
+}
+
+// SendHealthMetrics sends health metrics to the API
+func (lc *LatitudeClient) SendHealthMetrics(ctx context.Context, health *collectors.ServerHealth) error {
+	lc.logger.Info("Sending health metrics to Latitude.sh API")
+
+	// Prepare request body
+	reqBody, err := json.Marshal(health)
+	if err != nil {
+		return fmt.Errorf("failed to marshal health metrics: %w", err)
+	}
+
+	// Create HTTP request to health endpoint
+	healthEndpoint := strings.Replace(lc.apiEndpoint, "/agent/ping", "/agent/health", 1)
+	req, err := http.NewRequestWithContext(ctx, "POST", healthEndpoint, bytes.NewBuffer(reqBody))
+	if err != nil {
+		return fmt.Errorf("failed to create HTTP request: %w", err)
+	}
+
+	// Set headers
+	req.Header.Set("Content-Type", "application/json")
+	if lc.bearerToken != "" {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", lc.bearerToken))
+	} else if token := os.Getenv("LATITUDESH_AUTH_TOKEN"); token != "" {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
+	}
+
+	// Execute request
+	resp, err := lc.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("HTTP request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Check HTTP status
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	lc.logger.Info("Successfully sent health metrics to API")
+	return nil
 }
