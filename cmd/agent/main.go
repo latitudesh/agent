@@ -20,8 +20,8 @@ const Version = "1.0.0"
 func main() {
 	// Parse command line flags
 	var (
-		configPath = flag.String("config", config.DefaultConfigPath(), "Path to configuration file")
-		version    = flag.Bool("version", false, "Show version and exit")
+		configPath  = flag.String("config", config.DefaultConfigPath(), "Path to configuration file")
+		version     = flag.Bool("version", false, "Show version and exit")
 		checkConfig = flag.Bool("check-config", false, "Check configuration and exit")
 	)
 	flag.Parse()
@@ -86,17 +86,46 @@ func main() {
 		// Don't exit immediately, allow retry in main loop
 	}
 
+	var healthCollector *collectors.HealthCollector
+	if cfg.Health.Enabled {
+		healthCollector = collectors.NewHealthCollector(
+			cfg.Latitude.ProjectID, // ou server ID
+			Version,
+			log.Logger,
+		)
+		log.Info("Health monitoring enabled")
+	}
+
 	// Parse interval
 	interval, err := time.ParseDuration(cfg.Agent.Interval)
 	if err != nil {
 		log.Fatalf("Invalid interval %s: %v", cfg.Agent.Interval, err)
 	}
 
-	log.Infof("Starting agent with %s interval", interval)
+	var healthInterval time.Duration
+	if cfg.Health.Enabled {
+		healthInterval, err = time.ParseDuration(cfg.Health.Interval)
+		if err != nil {
+			log.Fatalf("Invalid health interval %s: %v", cfg.Health.Interval, err)
+		}
+	}
+
+	log.Infof("Starting agent with firewall interval: %s, health interval: %s", interval, healthInterval)
 
 	// Main execution loop
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+
+	var healthTicker *time.Ticker
+	if healthCollector != nil {
+		healthTicker = time.NewTicker(healthInterval)
+		defer healthTicker.Stop()
+
+		// Run health collection immediately on startup
+		if err := runHealthCollection(ctx, latitudeClient, healthCollector, log); err != nil {
+			log.WithError(err).Error("Initial health collection failed")
+		}
+	}
 
 	// Run immediately on startup
 	if err := runCollection(ctx, latitudeClient, firewallCollector, cfg, log); err != nil {
@@ -114,12 +143,51 @@ func main() {
 			cancel()
 			return
 		case <-ticker.C:
+			// Firewall sync
 			if err := runCollection(ctx, latitudeClient, firewallCollector, cfg, log); err != nil {
 				log.WithError(err).Error("Collection cycle failed")
-				// Continue running despite errors
+			}
+		case <-healthTicker.C:
+			// Health monitoring (only if enabled)
+			if healthCollector != nil {
+				if err := runHealthCollection(ctx, latitudeClient, healthCollector, log); err != nil {
+					log.WithError(err).Error("Health collection cycle failed")
+				}
 			}
 		}
 	}
+}
+
+// runHealthCollection performs a single health collection cycle
+func runHealthCollection(ctx context.Context, latitudeClient *client.LatitudeClient,
+	healthCollector *collectors.HealthCollector, log *logger.Logger) error {
+
+	start := time.Now()
+	log.WithComponent("health").Info("Starting health collection cycle")
+
+	// Collect health metrics
+	health, err := healthCollector.Collect(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to collect health metrics: %w", err)
+	}
+
+	log.WithComponent("health").Infof("Overall health status: %s", health.OverallStatus)
+
+	// Log component statuses
+	log.WithComponent("health").Debugf("Hardware: %s, Network: %s, Disk: %s, Memory: %s, CPU: %s",
+		health.Hardware.Status, health.Network.Status, health.Disk.Status,
+		health.Memory.Status, health.CPU.Status)
+
+	// Send metrics to API
+	if err := latitudeClient.SendHealthMetrics(ctx, health); err != nil {
+		log.WithError(err).Warn("Failed to send health metrics to API (will retry next cycle)")
+		// Don't return error - we'll retry in next cycle
+	}
+
+	duration := time.Since(start)
+	log.WithComponent("health").Infof("Health collection cycle completed in %s", duration)
+
+	return nil
 }
 
 // runCollection performs a single collection cycle
@@ -159,9 +227,9 @@ func runCollection(ctx context.Context, latitudeClient *client.LatitudeClient, f
 		collectorStart := time.Now()
 		err := firewallCollector.SyncFirewallRules(ctx, rulesJSON)
 		duration := time.Since(collectorStart)
-		
+
 		log.LogCollectorRun("firewall", duration.String(), err == nil, err)
-		
+
 		if err != nil {
 			return fmt.Errorf("firewall synchronization failed: %w", err)
 		}
@@ -178,6 +246,6 @@ func runCollection(ctx context.Context, latitudeClient *client.LatitudeClient, f
 
 	duration := time.Since(start)
 	log.WithComponent("agent").Infof("Collection cycle completed successfully in %s", duration)
-	
+
 	return nil
 }
