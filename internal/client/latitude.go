@@ -198,8 +198,8 @@ func (lc *LatitudeClient) SendHealthMetrics(ctx context.Context, health *collect
 	}
 
 	// Create HTTP request to health endpoint
-	healthEndpoint := lc.apiEndpoint + "/health"
-	req, err := http.NewRequestWithContext(ctx, "POST", healthEndpoint, bytes.NewBuffer(reqBody))
+	// healthEndpoint := lc.apiEndpoint + "/health"
+	req, err := http.NewRequestWithContext(ctx, "POST", lc.apiEndpoint, bytes.NewBuffer(reqBody))
 	if err != nil {
 		return fmt.Errorf("failed to create HTTP request: %w", err)
 	}
