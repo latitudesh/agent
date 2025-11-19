@@ -206,6 +206,12 @@ func (lc *LatitudeClient) SendHealthMetrics(ctx context.Context, health *collect
 
 	// Set headers
 	req.Header.Set("Content-Type", "application/json")
+
+	// Add public IP header for server identification
+	if lc.publicIP != "" {
+		req.Header.Set("X-Server-IP", lc.publicIP)
+	}
+
 	if lc.bearerToken != "" {
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", lc.bearerToken))
 	} else if token := os.Getenv("LATITUDESH_AUTH_TOKEN"); token != "" {
