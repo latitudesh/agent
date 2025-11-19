@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"strings"
 
 	"github.com/latitudesh/agent/internal/collectors"
 	"github.com/sirupsen/logrus"
