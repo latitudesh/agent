@@ -90,7 +90,7 @@ To                         Action      From
 	}
 }
 
-func TestSyncDiff_StableWithCaseSensitiveProtocol(t *testing.T) {
+func TestSyncDiff_NoCycleFromMismatchedProtocolCase(t *testing.T) {
 	fc := NewFirewallCollector("ufw", true, logrus.New())
 
 	apiRules := []FirewallRule{
