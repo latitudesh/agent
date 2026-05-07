@@ -20,17 +20,23 @@ type FirewallRule struct {
 	Port     string `json:"port"`
 }
 
-// String returns a normalized string representation of the rule
+// String returns a normalized string representation of the rule.
+// Normalization keeps the diff key stable across the API (which keeps
+// /32 and /128 host suffixes and may use uppercase protocol) and ufw
+// status output (which strips /32 and /128 and emits lowercase protocol).
 func (r FirewallRule) String() string {
-	from := r.From
+	from := strings.TrimSpace(r.From)
 	if from == "" {
 		from = "any"
+	} else {
+		from = strings.TrimSuffix(from, "/32")
+		from = strings.TrimSuffix(from, "/128")
 	}
-	protocol := r.Protocol
+	protocol := strings.ToLower(strings.TrimSpace(r.Protocol))
 	if protocol == "" {
 		protocol = "any"
 	}
-	port := r.Port
+	port := strings.TrimSpace(r.Port)
 	if port == "" {
 		port = "any"
 	}
