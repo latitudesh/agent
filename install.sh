@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 
 # Function to display usage
 usage() {
@@ -67,6 +68,12 @@ for pkg in curl ufw jq git; do
         install_package $pkg || exit 1
     fi
 done
+
+# Install C build environment (required by Go's cgo for the net package)
+if ! dpkg -s build-essential &> /dev/null; then
+    echo "Installing build-essential..."
+    install_package build-essential || exit 1
+fi
 
 # Enable UFW if it's not active
 if ! ufw status | grep -q "Status: active"; then
