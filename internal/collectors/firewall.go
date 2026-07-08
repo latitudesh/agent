@@ -16,6 +16,7 @@ import (
 // FirewallRule represents a firewall rule
 type FirewallRule struct {
 	From     string `json:"from"`
+	To       string `json:"to"`
 	Protocol string `json:"protocol"`
 	Port     string `json:"port"`
 }
@@ -25,13 +26,8 @@ type FirewallRule struct {
 // /32 and /128 host suffixes and may use uppercase protocol) and ufw
 // status output (which strips /32 and /128 and emits lowercase protocol).
 func (r FirewallRule) String() string {
-	from := strings.TrimSpace(r.From)
-	if from == "" {
-		from = "any"
-	} else {
-		from = strings.TrimSuffix(from, "/32")
-		from = strings.TrimSuffix(from, "/128")
-	}
+	from := normalizeAddr(r.From)
+	to := normalizeAddr(r.To)
 	protocol := strings.ToLower(strings.TrimSpace(r.Protocol))
 	if protocol == "" {
 		protocol = "any"
@@ -40,7 +36,21 @@ func (r FirewallRule) String() string {
 	if port == "" {
 		port = "any"
 	}
-	return fmt.Sprintf("From: %s, Protocol: %s, Port: %s", from, protocol, port)
+	return fmt.Sprintf("From: %s, To: %s, Protocol: %s, Port: %s", from, to, protocol, port)
+}
+
+// normalizeAddr normalizes a source/destination address so the diff key is
+// stable across the API and ufw status output. Empty values and the ufw
+// "Anywhere" label collapse to "any", and /32 and /128 host suffixes are
+// stripped (ufw status omits them).
+func normalizeAddr(addr string) string {
+	a := strings.TrimSpace(addr)
+	if a == "" || a == "Anywhere" {
+		return "any"
+	}
+	a = strings.TrimSuffix(a, "/32")
+	a = strings.TrimSuffix(a, "/128")
+	return a
 }
 
 // FirewallResponse represents the API response structure
@@ -82,17 +92,21 @@ func (fc *FirewallCollector) parseUFWRules(output string) ([]FirewallRule, error
 	var rules []FirewallRule
 	lines := strings.Split(output, "\n")
 
-	// Regular expression to match UFW rules
-	// Example: "22/tcp                     ALLOW       Anywhere"
-	ruleRegex := regexp.MustCompile(`^([0-9]+/[a-z]+)\s+ALLOW\s+(.+)$`)
+	// Regular expression to match UFW rules. The "To" column carries an
+	// optional destination before the port/proto: when the destination is
+	// "any" ufw prints just the port (e.g. "22/tcp ALLOW Anywhere"), and
+	// when it is a specific host it prefixes it (e.g. "203.51.16.0 8081/tcp
+	// ALLOW 8.8.8.8"). Group 1 captures that optional destination.
+	ruleRegex := regexp.MustCompile(`^(?:(\S+)\s+)?([0-9]+/[a-z]+)\s+ALLOW\s+(.+)$`)
 
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if strings.Contains(line, "ALLOW") && !strings.Contains(line, "(v6)") {
 			matches := ruleRegex.FindStringSubmatch(line)
-			if len(matches) >= 3 {
-				portProto := matches[1]
-				from := strings.TrimSpace(matches[2])
+			if len(matches) >= 4 {
+				to := strings.TrimSpace(matches[1])
+				portProto := matches[2]
+				from := strings.TrimSpace(matches[3])
 
 				// Parse port and protocol
 				parts := strings.Split(portProto, "/")
@@ -108,8 +122,14 @@ func (fc *FirewallCollector) parseUFWRules(output string) ([]FirewallRule, error
 					from = "any"
 				}
 
+				// Normalize "to" field (absent destination means any)
+				if to == "" || to == "Anywhere" {
+					to = "any"
+				}
+
 				rules = append(rules, FirewallRule{
 					From:     from,
+					To:       to,
 					Protocol: protocol,
 					Port:     port,
 				})
@@ -238,17 +258,22 @@ func (fc *FirewallCollector) findRulesToRemove(currentSet, apiSet map[string]Fir
 // addUFWRule adds a single UFW rule
 func (fc *FirewallCollector) addUFWRule(ctx context.Context, rule FirewallRule) error {
 	from := rule.From
-	if from == "any" {
+	if from == "" {
 		from = "any"
+	}
+
+	to := rule.To
+	if to == "" {
+		to = "any"
 	}
 
 	// UFW requires lowercase protocol names
 	protocol := strings.ToLower(rule.Protocol)
 
-	cmd := exec.CommandContext(ctx, "sudo", fc.ufwBinary, "allow", 
-		"proto", protocol, 
-		"from", from, 
-		"to", "any", 
+	cmd := exec.CommandContext(ctx, "sudo", fc.ufwBinary, "allow",
+		"proto", protocol,
+		"from", from,
+		"to", to,
 		"port", rule.Port)
 
 	output, err := cmd.CombinedOutput()
@@ -262,8 +287,13 @@ func (fc *FirewallCollector) addUFWRule(ctx context.Context, rule FirewallRule) 
 // removeUFWRule removes a single UFW rule
 func (fc *FirewallCollector) removeUFWRule(ctx context.Context, rule FirewallRule) error {
 	from := rule.From
-	if from == "any" {
+	if from == "" {
 		from = "any"
+	}
+
+	to := rule.To
+	if to == "" {
+		to = "any"
 	}
 
 	// UFW requires lowercase protocol names
@@ -271,7 +301,7 @@ func (fc *FirewallCollector) removeUFWRule(ctx context.Context, rule FirewallRul
 
 	cmd := exec.CommandContext(ctx, "sudo", fc.ufwBinary, "delete", "allow",
 		"from", from,
-		"to", "any",
+		"to", to,
 		"port", rule.Port,
 		"proto", protocol)
 
