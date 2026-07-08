@@ -38,6 +38,7 @@ type FirewallResponse struct {
 // FirewallRule represents a single firewall rule from the API
 type FirewallRule struct {
 	From     string `json:"from"`
+	To       string `json:"to"`
 	Protocol string `json:"protocol"`
 	Port     string `json:"port"`
 }
@@ -170,6 +171,10 @@ func (lc *LatitudeClient) GetFirewallRulesForDisplay(responseBody string) ([]str
 		if from == "" {
 			from = "any"
 		}
+		to := rule.To
+		if to == "" {
+			to = "any"
+		}
 		protocol := rule.Protocol
 		if protocol == "" {
 			protocol = "any"
@@ -179,7 +184,7 @@ func (lc *LatitudeClient) GetFirewallRulesForDisplay(responseBody string) ([]str
 			port = "any"
 		}
 
-		displayRule := fmt.Sprintf("From: %s, To: any, Protocol: %s, Port: %s", from, protocol, port)
+		displayRule := fmt.Sprintf("From: %s, To: %s, Protocol: %s, Port: %s", from, to, protocol, port)
 		displayRules = append(displayRules, displayRule)
 	}
 
