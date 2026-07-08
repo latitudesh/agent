@@ -117,19 +117,9 @@ func (fc *FirewallCollector) parseUFWRules(output string) ([]FirewallRule, error
 				port := parts[0]
 				protocol := parts[1]
 
-				// Normalize "from" field
-				if from == "Anywhere" {
-					from = "any"
-				}
-
-				// Normalize "to" field (absent destination means any)
-				if to == "" || to == "Anywhere" {
-					to = "any"
-				}
-
 				rules = append(rules, FirewallRule{
-					From:     from,
-					To:       to,
+					From:     normalizeAddr(from),
+					To:       normalizeAddr(to),
 					Protocol: protocol,
 					Port:     port,
 				})
