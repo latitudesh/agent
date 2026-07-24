@@ -15,7 +15,8 @@ Notes:
 
 ## Requirements
 
-- A Linux distribution with systemd and UFW support (e.g. Ubuntu, Debian, Rocky Linux)
+- A Debian-based Linux distribution with systemd and UFW (e.g. Ubuntu, Debian)
+- x86_64 (amd64) architecture — the install script downloads an amd64 Go toolchain
 - Root access
 - A firewall created in the [Latitude.sh dashboard](https://www.latitude.sh/dashboard) with the server added as an assignment
 
@@ -67,7 +68,7 @@ lsh-agent -version                             # print version and exit
 
 ## Building from source
 
-Requires Go 1.21+.
+Requires Go 1.23+.
 
 ```bash
 make build         # build ./build/lsh-agent
@@ -84,7 +85,7 @@ See [TESTING.md](TESTING.md) for detailed testing instructions.
 sudo ./uninstall.sh
 ```
 
-This stops and removes the service, the binary, and the agent files.
+This stops and removes the service, the binary, and the agent files. The script reads `/etc/lsh-agent/env` (created by the installer) and exits if the file is missing — after a partial installation, remove the service and files manually.
 
 > **Warning:** the uninstall script also resets all UFW rules and disables UFW, leaving the server without a local firewall. Remember to remove the server from the firewall in the dashboard as well.
 
