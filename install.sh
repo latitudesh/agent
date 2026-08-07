@@ -78,6 +78,21 @@ if [ "$OS_FAMILY" = "rhel" ] && ! rpm -q epel-release &> /dev/null; then
     "$RPM_PM" install -y epel-release || { echo "Failed to enable EPEL; install epel-release and re-run."; exit 1; }
 fi
 
+# On the Debian family, ufw >= 0.36.2 declares "Breaks: iptables-persistent,
+# netfilter-persistent" (Debian 12/13 and Ubuntu 24.04+; Ubuntu 22.04 still
+# carries 0.36.1 and is unaffected), so apt REMOVES those packages in order to
+# install ufw — the two cannot coexist, and reinstalling them afterwards is not
+# possible. Remember whether netfilter-persistent was there so the boot-time
+# rule restore it provided can be handed over below.
+netfilter_persistent_installed() {
+    dpkg-query -W -f='${Status}' netfilter-persistent 2>/dev/null | grep -q "ok installed"
+}
+
+netfilter_persistent_was_installed=0
+if [ "$OS_FAMILY" = "debian" ] && netfilter_persistent_installed; then
+    netfilter_persistent_was_installed=1
+fi
+
 # Install required packages
 for pkg in curl ufw jq git; do
     if ! command -v $pkg &> /dev/null; then
@@ -85,6 +100,51 @@ for pkg in curl ufw jq git; do
         install_package $pkg || exit 1
     fi
 done
+
+# If installing ufw did remove netfilter-persistent, take over its one job:
+# restoring /etc/iptables/rules.v{4,6} at boot. On a Latitude host that matters —
+# the deploy template writes the metadata DNAT (169.254.169.254 -> the metadata
+# service) into /etc/iptables/rules.v4 and relies on netfilter-persistent to
+# reload it every boot. The rule files survive the package removal; the restorer
+# does not, so without this the agent would silently drop the metadata redirect
+# on the next reboot.
+#
+# Safe next to ufw: ufw's flush (flush_builtins in /lib/ufw/ufw-init-functions)
+# only touches the filter table (-F/-X plus the INPUT/OUTPUT/FORWARD policies),
+# never nat — so neither boot-time activation nor the `ufw reload` this agent
+# issues on every rule change can wipe the DNAT. The unit mirrors
+# netfilter-persistent's own ordering, and --noflush means it only ever adds.
+if [ "$netfilter_persistent_was_installed" = 1 ] && ! netfilter_persistent_installed; then
+    if [ -f /etc/iptables/rules.v4 ] || [ -f /etc/iptables/rules.v6 ]; then
+        echo "ufw replaced netfilter-persistent; preserving the /etc/iptables rules at boot..."
+        cat > /etc/systemd/system/lsh-agent-netfilter-restore.service << 'EOF'
+[Unit]
+Description=Restore /etc/iptables rules (stands in for netfilter-persistent, which ufw replaces)
+Documentation=https://github.com/latitudesh/agent
+DefaultDependencies=no
+Wants=network-pre.target systemd-modules-load.service local-fs.target
+Before=network-pre.target shutdown.target
+After=systemd-modules-load.service local-fs.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c 'if [ -f /etc/iptables/rules.v4 ]; then iptables-restore --noflush /etc/iptables/rules.v4; fi'
+ExecStart=/bin/sh -c 'if [ -f /etc/iptables/rules.v6 ]; then ip6tables-restore --noflush /etc/iptables/rules.v6; fi'
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        systemctl daemon-reload
+        systemctl enable lsh-agent-netfilter-restore.service
+        # Deliberately not started: those rules are already live on this boot
+        # (they were loaded before netfilter-persistent went away), and --noflush
+        # would just append duplicates.
+    else
+        echo "Warning: netfilter-persistent was removed to install ufw, and no /etc/iptables rules were found to preserve." >&2
+    fi
+fi
 
 # Install the C build toolchain (required by Go's cgo for the net package):
 # build-essential on Debian/Ubuntu, gcc + make on the RHEL family.
