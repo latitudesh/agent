@@ -49,17 +49,34 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-# Function to install a package
+# Detect the OS package family so the installer works on both Debian/Ubuntu
+# (apt + build-essential + native UFW) and the RHEL family (dnf/yum + gcc/make
+# + UFW from EPEL).
+if command -v apt-get &> /dev/null; then
+    OS_FAMILY="debian"
+elif command -v dnf &> /dev/null; then
+    OS_FAMILY="rhel"; RPM_PM="dnf"
+elif command -v yum &> /dev/null; then
+    OS_FAMILY="rhel"; RPM_PM="yum"
+else
+    echo "Unsupported OS: need apt-get (Debian/Ubuntu) or dnf/yum (RHEL family)."
+    exit 1
+fi
+
+# Function to install one or more packages
 install_package() {
-    if command -v apt-get &> /dev/null; then
-        apt-get update && apt-get install -y "$1"
-    elif command -v yum &> /dev/null; then
-        yum install -y "$1"
+    if [ "$OS_FAMILY" = "debian" ]; then
+        apt-get update && apt-get install -y "$@"
     else
-        echo "Unable to install $1. Please install it manually."
-        return 1
+        "$RPM_PM" install -y "$@"
     fi
 }
+
+# On the RHEL family, UFW ships in EPEL — enable it before the package loop.
+if [ "$OS_FAMILY" = "rhel" ] && ! rpm -q epel-release &> /dev/null; then
+    echo "Enabling EPEL (provides ufw on the RHEL family)..."
+    "$RPM_PM" install -y epel-release || { echo "Failed to enable EPEL; install epel-release and re-run."; exit 1; }
+fi
 
 # Install required packages
 for pkg in curl ufw jq git; do
@@ -69,10 +86,23 @@ for pkg in curl ufw jq git; do
     fi
 done
 
-# Install C build environment (required by Go's cgo for the net package)
-if ! dpkg -s build-essential &> /dev/null; then
-    echo "Installing build-essential..."
-    install_package build-essential || exit 1
+# Install the C build toolchain (required by Go's cgo for the net package):
+# build-essential on Debian/Ubuntu, gcc + make on the RHEL family.
+if [ "$OS_FAMILY" = "debian" ]; then
+    if ! dpkg -s build-essential &> /dev/null; then
+        echo "Installing build-essential..."
+        install_package build-essential || exit 1
+    fi
+elif ! command -v gcc &> /dev/null || ! command -v make &> /dev/null; then
+    echo "Installing gcc/make (build toolchain)..."
+    install_package gcc make || exit 1
+fi
+
+# On the RHEL family, firewalld owns netfilter by default and conflicts with
+# UFW; stop and disable it so UFW can manage the firewall.
+if [ "$OS_FAMILY" = "rhel" ] && systemctl is-active --quiet firewalld 2> /dev/null; then
+    echo "Disabling firewalld (conflicts with UFW)..."
+    systemctl disable --now firewalld || true
 fi
 
 # Enable UFW if it's not active
