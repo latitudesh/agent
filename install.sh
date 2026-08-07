@@ -98,23 +98,86 @@ elif ! command -v gcc &> /dev/null || ! command -v make &> /dev/null; then
     install_package gcc make || exit 1
 fi
 
-# On the RHEL family, firewalld owns netfilter by default and conflicts with
-# UFW; stop and disable it so UFW can manage the firewall.
-if [ "$OS_FAMILY" = "rhel" ] && systemctl is-active --quiet firewalld 2> /dev/null; then
+# UFW is the agent's firewall backend. On the RHEL family firewalld owns
+# netfilter by default and would contend with UFW over the same hooks, so it has
+# to go — but only once UFW is ready to take over, and with a restore path, so a
+# failed switch never leaves the host without a firewall.
+FIREWALLD_WAS_ENABLED=0
+FIREWALLD_WAS_ACTIVE=0
+
+restore_firewalld() {
+    if [ "$FIREWALLD_WAS_ENABLED" = 1 ]; then
+        systemctl enable firewalld &> /dev/null || true
+    fi
+    if [ "$FIREWALLD_WAS_ACTIVE" = 1 ]; then
+        systemctl start firewalld &> /dev/null || true
+    fi
+    if [ "$FIREWALLD_WAS_ENABLED" = 1 ] || [ "$FIREWALLD_WAS_ACTIVE" = 1 ]; then
+        echo "UFW setup failed: firewalld restored to its previous state." >&2
+    fi
+}
+
+disable_firewalld() {
+    [ "$OS_FAMILY" = "rhel" ] || return 0
+
+    # Track both halves independently: a host can be enabled-but-stopped (so
+    # firewalld would come back on the next boot and fight UFW) or
+    # active-but-disabled.
+    if systemctl is-enabled --quiet firewalld 2> /dev/null; then
+        FIREWALLD_WAS_ENABLED=1
+    fi
+    if systemctl is-active --quiet firewalld 2> /dev/null; then
+        FIREWALLD_WAS_ACTIVE=1
+    fi
+    if [ "$FIREWALLD_WAS_ENABLED" = 0 ] && [ "$FIREWALLD_WAS_ACTIVE" = 0 ]; then
+        return 0
+    fi
+
     echo "Disabling firewalld (conflicts with UFW)..."
-    systemctl disable --now firewalld || true
-fi
+    systemctl disable --now firewalld 2> /dev/null || true
+
+    # Verify instead of trusting the exit status: continuing with firewalld
+    # still running (or still enabled for the next boot) means two managers
+    # writing netfilter rules.
+    if systemctl is-active --quiet firewalld 2> /dev/null ||
+        systemctl is-enabled --quiet firewalld 2> /dev/null; then
+        echo "Error: could not disable firewalld; it would contend with UFW over netfilter." >&2
+        echo "Disable it manually ('systemctl disable --now firewalld') and re-run this installer." >&2
+        exit 1
+    fi
+}
 
 # Enable UFW if it's not active
-if ! ufw status | grep -q "Status: active"; then
+if ufw status | grep -q "Status: active"; then
+    echo "Firewall is already active"
+    # UFW is already in charge, so dropping firewalld here cannot leave the
+    # host unprotected.
+    disable_firewalld
+else
     echo "Enabling Firewall..."
-    ufw --force enable
+
+    # Seed the policy while UFW is still inactive: these only write /etc/ufw
+    # config, nothing reaches netfilter yet, so a failure here still leaves the
+    # host's current firewall untouched.
     ufw default deny incoming
     ufw default allow outgoing
     ufw allow ssh
+
+    # Now hand netfilter over: firewalld out, UFW in. If enabling UFW fails,
+    # the EXIT trap puts firewalld back.
+    disable_firewalld
+    trap restore_firewalld EXIT
+    ufw --force enable
+    trap - EXIT
+
+    # EPEL's ufw ships a systemd unit that 'ufw enable' does not enable (it
+    # only flips ENABLED= in /etc/ufw/ufw.conf). Without the unit the rules are
+    # not reloaded at boot — and firewalld is no longer there to cover for it.
+    if [ "$OS_FAMILY" = "rhel" ]; then
+        systemctl enable ufw &> /dev/null || true
+    fi
+
     echo "Firewall enabled and configured with default rules"
-else
-    echo "Firewall is already active"
 fi
 
 # Create directory structure
