@@ -292,9 +292,15 @@ export PATH=$PATH:/usr/local/go/bin
 /usr/local/go/bin/go mod tidy
 /usr/local/go/bin/go build -o lsh-agent ./cmd/agent
 
-# Install binary and config
-cp lsh-agent /usr/local/bin/
-chmod +x /usr/local/bin/lsh-agent
+# Install binary and config. Writing straight onto /usr/local/bin/lsh-agent
+# fails with ETXTBSY ("Text file busy") whenever an agent is already running,
+# which makes every re-install and upgrade on a live host die here. rename(2)
+# has no such restriction: it swaps the directory entry while the running
+# process keeps its own inode, which the kernel frees on the restart below.
+# Stage the new binary in the same directory so the rename stays on one
+# filesystem, where it is atomic — no window with a half-written agent on disk.
+install -m 0755 lsh-agent /usr/local/bin/lsh-agent.new
+mv -f /usr/local/bin/lsh-agent.new /usr/local/bin/lsh-agent
 cp configs/agent.yaml /etc/lsh-agent/config.yaml
 
 # Cleanup
@@ -332,13 +338,15 @@ echo "PUBLIC_IP=$PUBLIC_IP" >> /etc/lsh-agent/env
 
 # Note: LATITUDESH_AUTH_TOKEN token will be set via systemctl edit command after installation
 
-# Reload systemd, enable and start the service
+# Reload systemd, enable and (re)start the service. restart, not start: on a
+# re-install `start` is a no-op against the already-running agent, which would
+# leave the old binary serving from the inode the rename above just detached.
 systemctl daemon-reload
 systemctl enable lsh-agent.service
-systemctl start lsh-agent.service
+systemctl restart lsh-agent.service
 
-# Verify rather than trust the start. The unit is Type=simple with
-# Restart=always, so `systemctl start` returns 0 the moment the fork succeeds —
+# Verify rather than trust the restart. The unit is Type=simple with
+# Restart=always, so systemctl returns 0 the moment the fork succeeds —
 # an agent that exits immediately still looks like a clean install. Since UFW is
 # already default-deny by this point, "installed but not running" is the one
 # outcome that must never be reported as success.
