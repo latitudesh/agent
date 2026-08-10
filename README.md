@@ -15,7 +15,9 @@ Notes:
 
 ## Requirements
 
-- A Debian-based Linux distribution with systemd and UFW (e.g. Ubuntu, Debian)
+- A Linux distribution with systemd:
+  - Debian/Ubuntu — UFW ships natively, or
+  - RHEL family (Rocky Linux / AlmaLinux 9 and 10) — the installer enables EPEL to provide UFW and disables `firewalld` so UFW owns the firewall
 - x86_64 (amd64) architecture — the install script downloads an amd64 Go toolchain
 - Root access
 - A firewall created in the [Latitude.sh dashboard](https://www.latitude.sh/dashboard) with the server added as an assignment
@@ -30,7 +32,7 @@ Alternatively, run the install script directly from this repository:
 sudo ./install.sh -firewall <firewall_id> -project <project_id> [-public_ip <public_ip>]
 ```
 
-The script installs the required dependencies, enables UFW with sane defaults (deny incoming, allow outgoing, allow SSH), builds the agent, and sets up the `lsh-agent` systemd service.
+The script installs the required dependencies, enables UFW with sane defaults (deny incoming, allow outgoing, allow SSH), builds the agent, and sets up the `lsh-agent` systemd service. On the RHEL family it also enables EPEL (which provides UFW) and disables `firewalld` so UFW owns the firewall.
 
 > **Important:** make sure the server is added to the firewall in the Latitude.sh dashboard, otherwise the agent will have no rules to sync.
 
