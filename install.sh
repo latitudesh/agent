@@ -243,6 +243,19 @@ fi
 # Create directory structure
 mkdir -p /etc/lsh-agent
 
+# Go resolves GOPATH, GOMODCACHE and GOCACHE from $HOME. cloud-init (and any
+# systemd unit) runs this installer with HOME unset, which leaves GOPATH and
+# GOMODCACHE empty and GOCACHE "off", so the build below dies on
+#   go: module cache not found: neither GOMODCACHE nor GOPATH is set
+# That failure lands AFTER UFW has been switched to default-deny above, leaving
+# the host reachable only over SSH with no agent to write the project's firewall
+# rules into UFW.
+GO_WORK_DIR=/var/tmp/lsh-agent-build
+export GOPATH="${GO_WORK_DIR}/gopath"
+export GOMODCACHE="${GO_WORK_DIR}/gopath/pkg/mod"
+export GOCACHE="${GO_WORK_DIR}/gocache"
+mkdir -p "$GOPATH" "$GOMODCACHE" "$GOCACHE"
+
 # Install Go if not present
 if ! command -v go &>/dev/null; then
   GO_VERSION="1.23.4"
@@ -287,6 +300,7 @@ cp configs/agent.yaml /etc/lsh-agent/config.yaml
 # Cleanup
 cd /
 rm -rf /tmp/agent
+rm -rf "$GO_WORK_DIR"
 
 # Create systemd service for Go agent
 cat > /etc/systemd/system/lsh-agent.service << 'EOF'
@@ -322,6 +336,19 @@ echo "PUBLIC_IP=$PUBLIC_IP" >> /etc/lsh-agent/env
 systemctl daemon-reload
 systemctl enable lsh-agent.service
 systemctl start lsh-agent.service
+
+# Verify rather than trust the start. The unit is Type=simple with
+# Restart=always, so `systemctl start` returns 0 the moment the fork succeeds —
+# an agent that exits immediately still looks like a clean install. Since UFW is
+# already default-deny by this point, "installed but not running" is the one
+# outcome that must never be reported as success.
+sleep 2
+if ! systemctl is-active --quiet lsh-agent.service; then
+    echo "Error: lsh-agent.service is not running after install." >&2
+    echo "UFW is active with default rules only; this host will not receive the project's firewall rules." >&2
+    systemctl status lsh-agent.service --no-pager --lines=20 >&2 || true
+    exit 1
+fi
 
 echo "Installation completed successfully."
 echo ""
