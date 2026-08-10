@@ -250,11 +250,25 @@ mkdir -p /etc/lsh-agent
 # That failure lands AFTER UFW has been switched to default-deny above, leaving
 # the host reachable only over SSH with no agent to write the project's firewall
 # rules into UFW.
-GO_WORK_DIR=/var/tmp/lsh-agent-build
+# Use a private, unpredictable workspace instead of a constant path. A fixed
+# /var/tmp/lsh-agent-build could be precreated by a local user (symlink or
+# ownership games against a root Go build) or clobbered by a second installer
+# running at the same time. mktemp -d gives us a fresh directory that is
+# root-owned, mode 0700, and randomly named, so neither of those can happen.
+GO_WORK_DIR="$(mktemp -d "${TMPDIR:-/var/tmp}/lsh-agent-build.XXXXXX")"
 export GOPATH="${GO_WORK_DIR}/gopath"
 export GOMODCACHE="${GO_WORK_DIR}/gopath/pkg/mod"
 export GOCACHE="${GO_WORK_DIR}/gocache"
 mkdir -p "$GOPATH" "$GOMODCACHE" "$GOCACHE"
+
+# set -e aborts the moment any download/clone/build/copy below fails — before
+# the explicit cleanup near the end ever runs. Remove the build workspace and
+# the source clone from an EXIT trap so a failed install leaves nothing behind
+# for the next attempt to silently reuse a partial workspace.
+cleanup_build() {
+    rm -rf "$GO_WORK_DIR" /tmp/agent
+}
+trap cleanup_build EXIT
 
 # Install Go if not present
 if ! command -v go &>/dev/null; then
@@ -303,10 +317,11 @@ install -m 0755 lsh-agent /usr/local/bin/lsh-agent.new
 mv -f /usr/local/bin/lsh-agent.new /usr/local/bin/lsh-agent
 cp configs/agent.yaml /etc/lsh-agent/config.yaml
 
-# Cleanup
+# Cleanup. The EXIT trap already covers every failure path above; run it now on
+# the success path too and clear it so it does not fire again at script exit.
 cd /
-rm -rf /tmp/agent
-rm -rf "$GO_WORK_DIR"
+cleanup_build
+trap - EXIT
 
 # Create systemd service for Go agent
 cat > /etc/systemd/system/lsh-agent.service << 'EOF'
