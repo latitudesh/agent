@@ -243,6 +243,33 @@ fi
 # Create directory structure
 mkdir -p /etc/lsh-agent
 
+# Go resolves GOPATH, GOMODCACHE and GOCACHE from $HOME. cloud-init (and any
+# systemd unit) runs this installer with HOME unset, which leaves GOPATH and
+# GOMODCACHE empty and GOCACHE "off", so the build below dies on
+#   go: module cache not found: neither GOMODCACHE nor GOPATH is set
+# That failure lands AFTER UFW has been switched to default-deny above, leaving
+# the host reachable only over SSH with no agent to write the project's firewall
+# rules into UFW.
+# Use a private, unpredictable workspace instead of a constant path. A fixed
+# /var/tmp/lsh-agent-build could be precreated by a local user (symlink or
+# ownership games against a root Go build) or clobbered by a second installer
+# running at the same time. mktemp -d gives us a fresh directory that is
+# root-owned, mode 0700, and randomly named, so neither of those can happen.
+GO_WORK_DIR="$(mktemp -d "${TMPDIR:-/var/tmp}/lsh-agent-build.XXXXXX")"
+export GOPATH="${GO_WORK_DIR}/gopath"
+export GOMODCACHE="${GO_WORK_DIR}/gopath/pkg/mod"
+export GOCACHE="${GO_WORK_DIR}/gocache"
+mkdir -p "$GOPATH" "$GOMODCACHE" "$GOCACHE"
+
+# set -e aborts the moment any download/clone/build/copy below fails — before
+# the explicit cleanup near the end ever runs. Remove the build workspace and
+# the source clone from an EXIT trap so a failed install leaves nothing behind
+# for the next attempt to silently reuse a partial workspace.
+cleanup_build() {
+    rm -rf "$GO_WORK_DIR" /tmp/agent
+}
+trap cleanup_build EXIT
+
 # Install Go if not present
 if ! command -v go &>/dev/null; then
   GO_VERSION="1.23.4"
@@ -279,14 +306,22 @@ export PATH=$PATH:/usr/local/go/bin
 /usr/local/go/bin/go mod tidy
 /usr/local/go/bin/go build -o lsh-agent ./cmd/agent
 
-# Install binary and config
-cp lsh-agent /usr/local/bin/
-chmod +x /usr/local/bin/lsh-agent
+# Install binary and config. Writing straight onto /usr/local/bin/lsh-agent
+# fails with ETXTBSY ("Text file busy") whenever an agent is already running,
+# which makes every re-install and upgrade on a live host die here. rename(2)
+# has no such restriction: it swaps the directory entry while the running
+# process keeps its own inode, which the kernel frees on the restart below.
+# Stage the new binary in the same directory so the rename stays on one
+# filesystem, where it is atomic — no window with a half-written agent on disk.
+install -m 0755 lsh-agent /usr/local/bin/lsh-agent.new
+mv -f /usr/local/bin/lsh-agent.new /usr/local/bin/lsh-agent
 cp configs/agent.yaml /etc/lsh-agent/config.yaml
 
-# Cleanup
+# Cleanup. The EXIT trap already covers every failure path above; run it now on
+# the success path too and clear it so it does not fire again at script exit.
 cd /
-rm -rf /tmp/agent
+cleanup_build
+trap - EXIT
 
 # Create systemd service for Go agent
 cat > /etc/systemd/system/lsh-agent.service << 'EOF'
@@ -318,10 +353,25 @@ echo "PUBLIC_IP=$PUBLIC_IP" >> /etc/lsh-agent/env
 
 # Note: LATITUDESH_AUTH_TOKEN token will be set via systemctl edit command after installation
 
-# Reload systemd, enable and start the service
+# Reload systemd, enable and (re)start the service. restart, not start: on a
+# re-install `start` is a no-op against the already-running agent, which would
+# leave the old binary serving from the inode the rename above just detached.
 systemctl daemon-reload
 systemctl enable lsh-agent.service
-systemctl start lsh-agent.service
+systemctl restart lsh-agent.service
+
+# Verify rather than trust the restart. The unit is Type=simple with
+# Restart=always, so systemctl returns 0 the moment the fork succeeds —
+# an agent that exits immediately still looks like a clean install. Since UFW is
+# already default-deny by this point, "installed but not running" is the one
+# outcome that must never be reported as success.
+sleep 2
+if ! systemctl is-active --quiet lsh-agent.service; then
+    echo "Error: lsh-agent.service is not running after install." >&2
+    echo "UFW is active with default rules only; this host will not receive the project's firewall rules." >&2
+    systemctl status lsh-agent.service --no-pager --lines=20 >&2 || true
+    exit 1
+fi
 
 echo "Installation completed successfully."
 echo ""
