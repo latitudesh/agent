@@ -25,14 +25,25 @@ type LatitudeClient struct {
 
 // PingRequest represents the request structure for the ping endpoint
 type PingRequest struct {
-	IPAddress string `json:"ip_address"`
+	IPAddress  string `json:"ip_address"`
+	FirewallID string `json:"firewall_id,omitempty"`
+	ProjectID  string `json:"project_id,omitempty"`
 }
 
-// FirewallResponse represents the firewall rules response
+// FirewallResponse represents the firewall rules response. Firewall is a
+// pointer so an absent or null "firewall" field (a malformed response) is
+// distinguishable from an explicitly disabled firewall, which the API returns
+// as an empty object.
 type FirewallResponse struct {
-	Firewall struct {
-		Rules []FirewallRule `json:"rules"`
-	} `json:"firewall"`
+	ServerID  string        `json:"server_id"`
+	ProjectID string        `json:"project_id"`
+	Firewall  *FirewallData `json:"firewall"`
+}
+
+// FirewallData is the firewall object returned by agent/ping.
+type FirewallData struct {
+	ID    string         `json:"id"`
+	Rules []FirewallRule `json:"rules"`
 }
 
 // FirewallRule represents a single firewall rule from the API
@@ -62,7 +73,9 @@ func (lc *LatitudeClient) PingAndGetFirewallRules(ctx context.Context) (string, 
 
 	// Prepare request body
 	pingReq := PingRequest{
-		IPAddress: lc.publicIP,
+		IPAddress:  lc.publicIP,
+		FirewallID: lc.firewallID,
+		ProjectID:  lc.projectID,
 	}
 
 	reqBody, err := json.Marshal(pingReq)
@@ -114,12 +127,44 @@ func (lc *LatitudeClient) ValidateFirewallResponse(responseBody string) error {
 	}
 
 	// Check if firewall is disabled (empty array)
-	if len(response.Firewall.Rules) == 0 {
+	if response.Firewall == nil || len(response.Firewall.Rules) == 0 {
 		lc.logger.Warn("Firewall is disabled or no rules exist for this server")
 		return nil
 	}
 
 	lc.logger.Infof("Validated firewall response with %d rules", len(response.Firewall.Rules))
+	return nil
+}
+
+// VerifyFirewallIdentity refuses a firewall whose id or project does not match
+// the firewall this agent was installed to enforce.
+func (lc *LatitudeClient) VerifyFirewallIdentity(responseBody string) error {
+	var response FirewallResponse
+	if err := json.Unmarshal([]byte(responseBody), &response); err != nil {
+		return fmt.Errorf("invalid JSON response: %w", err)
+	}
+
+	if lc.projectID != "" && response.ProjectID != lc.projectID {
+		return fmt.Errorf(
+			"refusing to apply firewall for project %q: this agent is configured for project %q",
+			response.ProjectID, lc.projectID,
+		)
+	}
+
+	// A disabled firewall comes back as an empty object; an absent or null
+	// firewall field is a malformed response and must not be treated as
+	// "disabled", or an empty rule set would clear every managed UFW rule.
+	if response.Firewall == nil {
+		return fmt.Errorf("refusing to apply firewall: response is missing the firewall object")
+	}
+
+	if lc.firewallID != "" && (len(response.Firewall.Rules) > 0 || response.Firewall.ID != "") && response.Firewall.ID != lc.firewallID {
+		return fmt.Errorf(
+			"refusing to apply firewall %q: this agent is configured for firewall %q (possible stale cross-tenant assignment on a pooled server)",
+			response.Firewall.ID, lc.firewallID,
+		)
+	}
+
 	return nil
 }
 
@@ -163,6 +208,10 @@ func (lc *LatitudeClient) GetFirewallRulesForDisplay(responseBody string) ([]str
 	var response FirewallResponse
 	if err := json.Unmarshal([]byte(responseBody), &response); err != nil {
 		return nil, fmt.Errorf("failed to parse firewall response: %w", err)
+	}
+
+	if response.Firewall == nil {
+		return nil, nil
 	}
 
 	var displayRules []string

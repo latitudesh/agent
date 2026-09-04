@@ -6,7 +6,8 @@ The Latitude.sh Agent (`lsh-agent`) is a lightweight daemon that keeps your serv
 
 1. The agent runs as a systemd service and polls the Latitude.sh API on a configurable interval (default: 30 seconds).
 2. On each cycle it fetches the current rules for the firewall assigned to the server.
-3. Rules are synchronized with UFW: missing rules are added and stale rules are removed, so the server always matches what is configured in the dashboard.
+3. Before applying anything, it verifies that the firewall returned by the API matches the `firewall_id` (and `project_id`) it was installed with. If the API returns a different firewall — for example a stale assignment left over after the server was released to the pool — the agent refuses to apply it, leaving the existing firewall untouched, rather than enforcing another tenant's rules.
+4. Rules are synchronized with UFW: missing rules are added and stale rules are removed, so the server always matches what is configured in the dashboard.
 
 Notes:
 
