@@ -71,6 +71,16 @@ func TestVerifyFirewallIdentity(t *testing.T) {
 			wantErrHas: "proj_someoneelse",
 		},
 		{
+			name:    "absent firewall field is refused (fail closed)",
+			body:    `{"status":"success","server_id":"sv_1","project_id":"proj_dexA0qZvzNlQV"}`,
+			wantErr: true,
+		},
+		{
+			name:    "null firewall field is refused (fail closed)",
+			body:    `{"status":"success","server_id":"sv_1","project_id":"proj_dexA0qZvzNlQV","firewall":null}`,
+			wantErr: true,
+		},
+		{
 			name:    "invalid JSON is rejected",
 			body:    `{not json`,
 			wantErr: true,
