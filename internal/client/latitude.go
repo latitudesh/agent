@@ -25,12 +25,17 @@ type LatitudeClient struct {
 
 // PingRequest represents the request structure for the ping endpoint
 type PingRequest struct {
-	IPAddress string `json:"ip_address"`
+	IPAddress  string `json:"ip_address"`
+	FirewallID string `json:"firewall_id,omitempty"`
+	ProjectID  string `json:"project_id,omitempty"`
 }
 
 // FirewallResponse represents the firewall rules response
 type FirewallResponse struct {
-	Firewall struct {
+	ServerID  string `json:"server_id"`
+	ProjectID string `json:"project_id"`
+	Firewall  struct {
+		ID    string         `json:"id"`
 		Rules []FirewallRule `json:"rules"`
 	} `json:"firewall"`
 }
@@ -62,7 +67,9 @@ func (lc *LatitudeClient) PingAndGetFirewallRules(ctx context.Context) (string, 
 
 	// Prepare request body
 	pingReq := PingRequest{
-		IPAddress: lc.publicIP,
+		IPAddress:  lc.publicIP,
+		FirewallID: lc.firewallID,
+		ProjectID:  lc.projectID,
 	}
 
 	reqBody, err := json.Marshal(pingReq)
@@ -120,6 +127,31 @@ func (lc *LatitudeClient) ValidateFirewallResponse(responseBody string) error {
 	}
 
 	lc.logger.Infof("Validated firewall response with %d rules", len(response.Firewall.Rules))
+	return nil
+}
+
+// VerifyFirewallIdentity refuses a firewall whose id or project does not match
+// the firewall this agent was installed to enforce.
+func (lc *LatitudeClient) VerifyFirewallIdentity(responseBody string) error {
+	var response FirewallResponse
+	if err := json.Unmarshal([]byte(responseBody), &response); err != nil {
+		return fmt.Errorf("invalid JSON response: %w", err)
+	}
+
+	if lc.projectID != "" && response.ProjectID != lc.projectID {
+		return fmt.Errorf(
+			"refusing to apply firewall for project %q: this agent is configured for project %q",
+			response.ProjectID, lc.projectID,
+		)
+	}
+
+	if lc.firewallID != "" && (len(response.Firewall.Rules) > 0 || response.Firewall.ID != "") && response.Firewall.ID != lc.firewallID {
+		return fmt.Errorf(
+			"refusing to apply firewall %q: this agent is configured for firewall %q (possible stale cross-tenant assignment on a pooled server)",
+			response.Firewall.ID, lc.firewallID,
+		)
+	}
+
 	return nil
 }
 

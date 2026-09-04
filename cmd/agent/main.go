@@ -20,8 +20,8 @@ const Version = "1.0.0"
 func main() {
 	// Parse command line flags
 	var (
-		configPath = flag.String("config", config.DefaultConfigPath(), "Path to configuration file")
-		version    = flag.Bool("version", false, "Show version and exit")
+		configPath  = flag.String("config", config.DefaultConfigPath(), "Path to configuration file")
+		version     = flag.Bool("version", false, "Show version and exit")
 		checkConfig = flag.Bool("check-config", false, "Check configuration and exit")
 	)
 	flag.Parse()
@@ -133,6 +133,10 @@ func runCollection(ctx context.Context, latitudeClient *client.LatitudeClient, f
 		return fmt.Errorf("failed to fetch firewall rules: %w", err)
 	}
 
+	if err := latitudeClient.VerifyFirewallIdentity(rulesJSON); err != nil {
+		return fmt.Errorf("firewall identity check failed, not applying rules: %w", err)
+	}
+
 	// Validate API response
 	if err := latitudeClient.ValidateFirewallResponse(rulesJSON); err != nil {
 		return fmt.Errorf("API response validation failed: %w", err)
@@ -159,9 +163,9 @@ func runCollection(ctx context.Context, latitudeClient *client.LatitudeClient, f
 		collectorStart := time.Now()
 		err := firewallCollector.SyncFirewallRules(ctx, rulesJSON)
 		duration := time.Since(collectorStart)
-		
+
 		log.LogCollectorRun("firewall", duration.String(), err == nil, err)
-		
+
 		if err != nil {
 			return fmt.Errorf("firewall synchronization failed: %w", err)
 		}
@@ -178,6 +182,6 @@ func runCollection(ctx context.Context, latitudeClient *client.LatitudeClient, f
 
 	duration := time.Since(start)
 	log.WithComponent("agent").Infof("Collection cycle completed successfully in %s", duration)
-	
+
 	return nil
 }
