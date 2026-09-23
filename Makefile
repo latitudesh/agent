@@ -52,6 +52,12 @@ test:
 	@echo "Running tests..."
 	$(GOTEST) -v ./...
 
+# Build the .deb locally with GoReleaser (snapshot build, nothing is published)
+.PHONY: package
+package:
+	@echo "Building $(BINARY_NAME) package..."
+	$(GOCMD) run github.com/goreleaser/goreleaser/v2@latest release --snapshot --clean
+
 # Check configuration syntax
 .PHONY: check-config
 check-config: build
@@ -124,6 +130,7 @@ help:
 	@echo "  clean         - Clean build artifacts"
 	@echo "  deps          - Download and tidy dependencies"
 	@echo "  test          - Run tests"
+	@echo "  package       - Build the .deb package into ./dist (snapshot)"
 	@echo "  check-config  - Validate configuration file"
 	@echo "  install       - Install binary to /usr/local/bin"
 	@echo "  uninstall     - Remove binary from /usr/local/bin"

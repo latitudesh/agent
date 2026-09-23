@@ -1,0 +1,19 @@
+[Unit]
+Description=Latitude.sh Agent
+Documentation=https://github.com/latitudesh/agent
+After=network.target
+Wants=network.target
+# FIREWALL_ID and PROJECT_ID live in /etc/lsh-agent/env, written by install.sh
+# (or by hand). Until it exists there is nothing to sync, so stay inactive
+# instead of failing config validation and restarting every RestartSec.
+ConditionPathExists=/etc/lsh-agent/env
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/lsh-agent -config /etc/lsh-agent/config.yaml
+Restart=always
+RestartSec=10
+User=root
+
+[Install]
+WantedBy=multi-user.target

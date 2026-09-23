@@ -1,0 +1,92 @@
+name-template: 'v$RESOLVED_VERSION'
+tag-template: 'v$RESOLVED_VERSION'
+
+# Each merged PR lands in one category by label. The autolabeler below maps the
+# repo's conventional-commit PR titles to those labels, so nobody has to
+# remember to label anything by hand.
+change-template: '- $TITLE (#$NUMBER) — @$AUTHOR'
+change-title-escapes: '\<*_&'
+
+categories:
+  - title: '🚨 Breaking'
+    label: 'type: breaking'
+  - title: '✨ New'
+    label: 'type: feature'
+  - title: '🐛 Bug Fixes'
+    label: 'type: bug'
+  - title: '🧰 Maintenance'
+    labels:
+      - 'type: maintenance'
+      - 'type: security'
+  - title: '📚 Documentation'
+    label: 'type: docs'
+  - title: '⬆️ Dependencies'
+    label: 'type: dependencies'
+    collapse-after: 5
+  - title: 'Other changes'
+
+# The next version is resolved from the labels of every PR accumulated in the
+# draft, and the highest bump wins: one breaking PR in the batch makes the whole
+# release a major. Unlabeled PRs default to patch.
+version-resolver:
+  major:
+    labels:
+      - 'type: breaking'
+  minor:
+    labels:
+      - 'type: feature'
+  patch:
+    labels:
+      - 'type: bug'
+      - 'type: maintenance'
+      - 'type: docs'
+      - 'type: dependencies'
+      - 'type: security'
+  default: patch
+
+# Read by the separate autolabeler action (see workflows/release-drafter.yml).
+# PR titles follow conventional commits in this repo, so derive the label from
+# the title and the version resolver always has something to work with.
+autolabeler:
+  - label: 'type: breaking'
+    title:
+      - '/^[a-z]+(\(.+\))?!:/'
+  - label: 'type: feature'
+    title:
+      - '/^feat/i'
+  - label: 'type: bug'
+    title:
+      - '/^fix(?!\(deps\))/i'
+  - label: 'type: docs'
+    title:
+      - '/^docs/i'
+  - label: 'type: dependencies'
+    title:
+      - '/^(chore|fix|build)\(deps\)/i'
+    branch:
+      - '/^dependabot\//'
+  - label: 'type: maintenance'
+    title:
+      - '/^(ci|refactor|test|style|build|perf)/i'
+      - '/^chore(?!\(deps\))/i'
+
+template: |
+  ## What's Changed
+
+  $CHANGES
+
+  ## Install / upgrade
+
+  On Debian/Ubuntu hosts with the [apt repository](https://github.com/latitudesh/agent#installing-with-apt-debianubuntu) configured:
+
+  ```bash
+  sudo apt-get update && sudo apt-get install -y lsh-agent=$RESOLVED_VERSION
+  ```
+
+  The `.deb` packages (amd64 and arm64) are also attached to this release.
+
+  ## Contributors
+
+  $CONTRIBUTORS
+
+  **Full Changelog**: https://github.com/$OWNER/$REPOSITORY/compare/$PREVIOUS_TAG...v$RESOLVED_VERSION

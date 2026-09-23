@@ -1,0 +1,36 @@
+#!/bin/sh
+set -e
+
+UNIT=lsh-agent.service
+
+# UFW is deliberately left alone: removing the package must not reset or
+# disable the host firewall (unlike uninstall.sh, which does both).
+
+if [ "$1" = "remove" ]; then
+    if [ -x /usr/bin/deb-systemd-helper ]; then
+        deb-systemd-helper mask "$UNIT" >/dev/null || true
+    fi
+
+    # Drop the compatibility link postinst left for install.sh migrations.
+    if [ -L /usr/local/bin/lsh-agent ] && [ "$(readlink /usr/local/bin/lsh-agent)" = "/usr/bin/lsh-agent" ]; then
+        rm -f /usr/local/bin/lsh-agent
+    fi
+fi
+
+if [ "$1" = "purge" ]; then
+    if [ -x /usr/bin/deb-systemd-helper ]; then
+        deb-systemd-helper purge "$UNIT" >/dev/null || true
+        deb-systemd-helper unmask "$UNIT" >/dev/null || true
+    fi
+
+    # Not a conffile (install.sh or the operator writes it), so dpkg will not
+    # remove it on purge by itself.
+    rm -f /etc/lsh-agent/env
+    rmdir /etc/lsh-agent 2>/dev/null || true
+fi
+
+if [ -d /run/systemd/system ]; then
+    systemctl --system daemon-reload >/dev/null || true
+fi
+
+exit 0

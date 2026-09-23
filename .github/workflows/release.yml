@@ -1,0 +1,96 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  # Rebuild and redeploy the apt repository from main without cutting a release:
+  # first deploy after enabling Pages, signing key rotation, or a failed deploy.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  goreleaser:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: stable
+      - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  apt-repo:
+    needs: goreleaser
+    # After a release, or on its own via workflow_dispatch from main (goreleaser
+    # skipped). This job holds the signing key and runs the checked-out
+    # scripts, so a manual run from any other ref is refused. Pre-release tags
+    # (v1.2.0-rc.1) never reach the stable repository.
+    if: >-
+      always() &&
+      (needs.goreleaser.result == 'success' || needs.goreleaser.result == 'skipped') &&
+      (github.event_name == 'push' || github.ref == 'refs/heads/main') &&
+      !contains(github.ref_name, '-')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}apt/
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Collect packages from every release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Each Pages deploy replaces the whole site, so rebuild from every
+          # published release: installs pinned to an older version (LKS pins
+          # the agent per node pool) must keep resolving.
+          mkdir -p debs
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/releases" \
+            --jq '.[] | select((.draft or .prerelease) | not) | .assets[] | select(.name | endswith(".deb")) | .browser_download_url' |
+            while read -r url; do
+              curl -fsSL --retry 3 -o "debs/${url##*/}" "$url"
+            done
+
+      # APT_SIGNING_KEY is a secret of the github-pages environment, not of the
+      # repository: only refs admitted by the environment's deployment rules
+      # (main and v* tags) can read it.
+      - name: Import signing key
+        env:
+          APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
+        run: printf '%s\n' "$APT_SIGNING_KEY" | gpg --batch --import
+
+      - name: Build apt repository
+        run: |
+          command -v apt-ftparchive > /dev/null || sudo apt-get install -y --no-install-recommends apt-utils
+          scripts/build-apt-repo.sh debs site/apt
+
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site
+
+      - id: deploy
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

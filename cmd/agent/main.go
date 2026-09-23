@@ -15,7 +15,9 @@ import (
 	"github.com/latitudesh/agent/internal/logger"
 )
 
-const Version = "1.0.0"
+// Version is set at build time via -ldflags "-X main.Version=...". It has to be
+// a var: the linker cannot rewrite a const.
+var Version = "dev"
 
 func main() {
 	// Parse command line flags

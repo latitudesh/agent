@@ -1,0 +1,10 @@
+#!/bin/sh
+set -e
+
+# Stop only on removal. On upgrade the agent keeps running and postinst
+# restarts it onto the new binary.
+if [ -z "${DPKG_ROOT:-}" ] && [ "$1" = "remove" ] && [ -d /run/systemd/system ]; then
+    deb-systemd-invoke stop lsh-agent.service >/dev/null || true
+fi
+
+exit 0
