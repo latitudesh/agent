@@ -5,11 +5,16 @@ on:
     branches:
       - main
   pull_request:
-    # The only types the autolabeler handles.
-    types: [opened, reopened, synchronize]
+    # edited: a PR retitled before merge (fix: -> feat:) must be relabeled, or
+    # the draft resolves the next version from its old label.
+    types: [opened, reopened, synchronize, edited]
 
 permissions:
   contents: read
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
   # Keeps the next release drafted as PRs merge into main: version resolved from
@@ -31,6 +36,24 @@ jobs:
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       pull-requests: write
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The autolabeler only ever adds labels. Clear the ones it manages first,
+      # so a PR retitled from feat: to fix: does not keep a stale label that
+      # still bumps the version. Labels set by hand (e.g. type: security) stay.
+      - name: Clear labels derived from the title
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          managed=$(yq -o=json -I=0 '[.autolabeler[].label]' .github/release-drafter.yml)
+          gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/labels" |
+            jq -r --argjson managed "$managed" '.[].name | select(IN($managed[]))' |
+            while read -r label; do
+              gh api -X DELETE "repos/${GITHUB_REPOSITORY}/issues/${PR}/labels/$(jq -rn --arg l "$label" '$l | @uri')" > /dev/null
+            done
+
       - uses: release-drafter/release-drafter/autolabeler@34d80673e067bdc0c24568d3af899c216adcfaa9 # v7.7.0
