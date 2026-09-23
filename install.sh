@@ -87,18 +87,35 @@ install_package() {
 # EPEL is only needed to get ufw. Oracle Linux has no "epel-release" package;
 # its EPEL repo comes from oracle-epel-release-el<major>. OL9's happens to
 # Provide epel-release, OL10's does not, so installing "epel-release" fails there.
-if [ "$OS_FAMILY" = "rhel" ] && ! command -v ufw &> /dev/null; then
-    epel_pkg="epel-release"
-    # Read os-release in a subshell so its NAME/VERSION/ID don't leak into ours.
-    os_id="$( . /etc/os-release 2> /dev/null && echo "${ID:-}" )"
+#
+# Both functions are exercised in CI by scripts/test-install-epel.sh.
+OS_RELEASE_FILE=/etc/os-release
+
+# Print the EPEL release package for this host. os-release is read in a
+# subshell so its NAME/VERSION/ID don't leak into the installer.
+epel_package() {
+    local os_id
+    # shellcheck source=/dev/null
+    os_id="$( . "$OS_RELEASE_FILE" 2> /dev/null && echo "${ID:-}" )"
     if [ "$os_id" = "ol" ]; then
-        epel_pkg="oracle-epel-release-el$( . /etc/os-release && echo "${VERSION_ID%%.*}" )"
+        # shellcheck source=/dev/null
+        echo "oracle-epel-release-el$( . "$OS_RELEASE_FILE" && echo "${VERSION_ID%%.*}" )"
+    else
+        echo "epel-release"
     fi
-    if ! rpm -q "$epel_pkg" &> /dev/null; then
-        echo "Enabling EPEL ($epel_pkg, provides ufw on the RHEL family)..."
-        "$RPM_PM" install -y "$epel_pkg" || { echo "Failed to enable EPEL; install $epel_pkg and re-run."; exit 1; }
-    fi
-fi
+}
+
+enable_epel_if_needed() {
+    local epel_pkg
+    [ "$OS_FAMILY" = "rhel" ] || return 0
+    command -v ufw &> /dev/null && return 0
+    epel_pkg="$(epel_package)"
+    rpm -q "$epel_pkg" &> /dev/null && return 0
+    echo "Enabling EPEL ($epel_pkg, provides ufw on the RHEL family)..."
+    "$RPM_PM" install -y "$epel_pkg" || { echo "Failed to enable EPEL; install $epel_pkg and re-run."; exit 1; }
+}
+
+enable_epel_if_needed
 
 # On the Debian family, ufw >= 0.36.2 declares "Breaks: iptables-persistent,
 # netfilter-persistent" (Debian 12/13 and Ubuntu 24.04+; Ubuntu 22.04 still
