@@ -47,6 +47,14 @@ else
     systemctl disable lsh-agent.service
 fi
 
+# Installed from the apt repository (Debian/Ubuntu): let dpkg remove what the
+# package owns, and drop the repository install.sh added.
+if command -v dpkg-query &> /dev/null && dpkg-query -W -f='${Status}' lsh-agent 2> /dev/null | grep -q "ok installed"; then
+    print_colored "yellow" "Removing the lsh-agent package..."
+    apt-get purge -y lsh-agent
+    rm -f /etc/apt/sources.list.d/lsh-agent.sources
+fi
+
 # Remove service file and binary
 print_colored "yellow" "Removing files..."
 rm -f /etc/systemd/system/lsh-agent.service
