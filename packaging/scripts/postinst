@@ -1,0 +1,57 @@
+#!/bin/sh
+set -e
+
+UNIT=lsh-agent.service
+
+# Hand hosts set up by install.sh over to the package. Before the package
+# existed, install.sh wrote its own unit to /etc/systemd/system, which shadows
+# the packaged one in /usr/lib/systemd/system and keeps running the
+# source-built binary from /usr/local/bin — the package would install fine and
+# never run.
+migrate_from_install_sh() {
+    legacy_unit=/etc/systemd/system/$UNIT
+    if [ -f "$legacy_unit" ] && grep -q '^ExecStart=/usr/local/bin/lsh-agent ' "$legacy_unit"; then
+        echo "Migrating lsh-agent from install.sh to the package..."
+        rm -f "$legacy_unit"
+        # `systemctl enable` linked the legacy unit by its /etc path. With the
+        # file gone that link dangles and the agent would not start at boot;
+        # the enable below recreates it for the packaged unit.
+        wants=/etc/systemd/system/multi-user.target.wants/$UNIT
+        if [ -L "$wants" ] && [ "$(readlink "$wants")" = "$legacy_unit" ]; then
+            rm -f "$wants"
+        fi
+    fi
+
+    # Keep /usr/local/bin/lsh-agent working for anything that still calls it
+    # or checks for it (e.g. an Ansible `creates:`), now as the packaged binary.
+    if [ -f /usr/local/bin/lsh-agent ] && [ ! -L /usr/local/bin/lsh-agent ]; then
+        ln -sf /usr/bin/lsh-agent /usr/local/bin/lsh-agent
+    fi
+}
+
+if [ "$1" = "configure" ]; then
+    migrate_from_install_sh
+fi
+
+# The unit handling below is what debhelper's dh_installsystemd generates:
+# enable on first install, respect an admin's `systemctl disable` on upgrades.
+if [ "$1" = "configure" ] || [ "$1" = "abort-upgrade" ] || [ "$1" = "abort-deconfigure" ] || [ "$1" = "abort-remove" ]; then
+    deb-systemd-helper unmask "$UNIT" >/dev/null || true
+
+    # was-enabled defaults to true, so new installations run enable.
+    if deb-systemd-helper --quiet was-enabled "$UNIT"; then
+        deb-systemd-helper enable "$UNIT" >/dev/null || true
+    else
+        deb-systemd-helper update-state "$UNIT" >/dev/null || true
+    fi
+
+    if [ -d /run/systemd/system ]; then
+        systemctl --system daemon-reload >/dev/null || true
+        # restart, not start: upgrades and install.sh migrations must swap the
+        # binary that is already running. Until /etc/lsh-agent/env exists the
+        # unit's ConditionPathExists keeps this a no-op.
+        deb-systemd-invoke restart "$UNIT" >/dev/null || true
+    fi
+fi
+
+exit 0

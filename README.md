@@ -19,7 +19,7 @@ Notes:
 - A Linux distribution with systemd:
   - Debian/Ubuntu — UFW ships natively, or
   - RHEL family (Rocky Linux / AlmaLinux 9 and 10) — the installer enables EPEL to provide UFW and disables `firewalld` so UFW owns the firewall
-- x86_64 (amd64) architecture — the install script downloads an amd64 Go toolchain
+- x86_64 (amd64) architecture — the install script downloads an amd64 Go toolchain (the [apt package](#installing-with-apt-debianubuntu) also supports arm64)
 - Root access
 - A firewall created in the [Latitude.sh dashboard](https://www.latitude.sh/dashboard) with the server added as an assignment
 
@@ -36,6 +36,40 @@ sudo ./install.sh -firewall <firewall_id> -project <project_id> [-public_ip <pub
 The script installs the required dependencies, enables UFW with sane defaults (deny incoming, allow outgoing, allow SSH), builds the agent, and sets up the `lsh-agent` systemd service. On the RHEL family it also enables EPEL (which provides UFW) and disables `firewalld` so UFW owns the firewall.
 
 > **Important:** make sure the server is added to the firewall in the Latitude.sh dashboard, otherwise the agent will have no rules to sync.
+
+### Installing with apt (Debian/Ubuntu)
+
+The agent is also published as a `.deb` package in a signed apt repository, for Ubuntu 22.04+ and Debian 12+ on amd64 and arm64:
+
+```bash
+sudo install -d -m 0755 /etc/apt/keyrings
+curl -fsSL https://packages.lsh.io/apt/lsh-agent.asc | sudo tee /etc/apt/keyrings/lsh-agent.asc > /dev/null
+echo "deb [signed-by=/etc/apt/keyrings/lsh-agent.asc] https://packages.lsh.io/apt stable main" | sudo tee /etc/apt/sources.list.d/lsh-agent.list
+sudo apt-get update
+sudo apt-get install -y lsh-agent             # or lsh-agent=<version> to pin one
+```
+
+The package installs the binary, the `lsh-agent` systemd unit and the default configuration, and restarts the agent on every upgrade. It does not configure the host: the service stays inactive until `/etc/lsh-agent/env` exists, and UFW is left as it is. To finish the setup:
+
+```bash
+# Bind the agent to your firewall and project
+sudo tee /etc/lsh-agent/env > /dev/null << 'EOF'
+FIREWALL_ID=<firewall_id>
+PROJECT_ID=<project_id>
+EOF
+
+# Enable UFW with the same defaults as install.sh (skip if UFW is already active)
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+sudo ufw allow ssh
+sudo ufw --force enable
+
+sudo systemctl restart lsh-agent
+```
+
+Hosts previously set up with `install.sh` are migrated when the package is installed: the service switches to the packaged binary, and `/usr/local/bin/lsh-agent` becomes a link to it.
+
+> **Note:** on Debian 12+ and Ubuntu 24.04+, installing UFW removes `iptables-persistent`/`netfilter-persistent`. If the host relies on them to restore `/etc/iptables` rules at boot, use `install.sh` instead, which keeps those rules restored.
 
 ### Managing the service
 
@@ -77,10 +111,23 @@ Requires Go 1.23+.
 make build         # build ./build/lsh-agent
 make build-linux   # cross-compile for linux/amd64
 make test          # run tests
+make package       # build the .deb into ./dist (snapshot)
 make help          # list all targets
 ```
 
 See [TESTING.md](TESTING.md) for detailed testing instructions.
+
+## Releasing
+
+Publish a GitHub Release with a new `vX.Y.Z` tag targeting `main`. The `release` workflow builds the binary and the `.deb` with GoReleaser, attaches them to the release, and redeploys the apt repository at `https://packages.lsh.io/apt` with the packages of every published release. Pre-release tags (e.g. `v1.2.0-rc.1`) get artifacts but are not added to the repository.
+
+The workflow needs:
+
+- the `APT_SIGNING_KEY` secret: the ASCII-armored private key that signs the repository, without a passphrase;
+- GitHub Pages deploying from GitHub Actions, with the custom domain `packages.lsh.io`;
+- a `v*` tag rule in the `github-pages` environment, so tag builds can deploy.
+
+To redeploy the repository without a release (e.g. after rotating the key), run the `release` workflow manually from `main`.
 
 ## Uninstalling
 
@@ -91,6 +138,8 @@ sudo ./uninstall.sh
 This stops and removes the service, the binary, and the agent files. The script reads `/etc/lsh-agent/env` (created by the installer) and exits if the file is missing — after a partial installation, remove the service and files manually.
 
 > **Warning:** the uninstall script also resets all UFW rules and disables UFW, leaving the server without a local firewall. Remember to remove the server from the firewall in the dashboard as well.
+
+If the agent was installed with apt, remove it with `sudo apt-get purge lsh-agent` instead. This stops the service and removes the agent and its configuration, but leaves UFW and its current rules in place.
 
 ## License
 

@@ -1,0 +1,64 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+version: 2
+
+project_name: lsh-agent
+
+builds:
+  - id: lsh-agent
+    main: ./cmd/agent
+    binary: lsh-agent
+    env:
+      # Static binary: one .deb runs on every supported Debian/Ubuntu release.
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.Version={{ .Version }}
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+nfpms:
+  - id: lsh-agent
+    package_name: lsh-agent
+    # lsh-agent_<version>_<arch>.deb, the Debian naming convention.
+    file_name_template: "{{ .ConventionalFileName }}"
+    vendor: Latitude.sh
+    homepage: https://github.com/latitudesh/agent
+    maintainer: Latitude.sh <support@latitude.sh>
+    description: |-
+      Latitude.sh Agent
+      Keeps the server's UFW firewall in sync with the Latitude.sh Firewall
+      configured in the dashboard.
+    license: GPL-3.0-only
+    formats:
+      - deb
+    bindir: /usr/bin
+    section: admin
+    priority: optional
+    dependencies:
+      - ufw
+      # deb-systemd-helper / deb-systemd-invoke, used by the maintainer scripts.
+      - init-system-helpers
+    contents:
+      - src: packaging/lsh-agent.service
+        dst: /usr/lib/systemd/system/lsh-agent.service
+      - src: configs/agent.yaml
+        dst: /etc/lsh-agent/config.yaml
+        type: config|noreplace
+    scripts:
+      postinstall: packaging/scripts/postinst
+      preremove: packaging/scripts/prerm
+      postremove: packaging/scripts/postrm
+
+snapshot:
+  # 1.0.3-dev becomes 1.0.3~dev in the .deb, which sorts below the 1.0.3 release.
+  version_template: "{{ incpatch .Version }}-dev"
+
+release:
+  # Releases are usually published from the GitHub UI: keep the notes written
+  # there, and let a re-run of the workflow re-upload the artifacts.
+  mode: keep-existing
+  replace_existing_artifacts: true
