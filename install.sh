@@ -3,7 +3,7 @@ set -e
 
 # Function to display usage
 usage() {
-    echo "Usage: $0 -firewall <firewall_id> -project <project_id> [-extra_parameters <extra_parameters>] [-public_ip <public_ip>]"
+    echo "Usage: $0 -firewall <firewall_id> -project <project_id> [-extra_parameters <extra_parameters>] [-public_ip <public_ip>] [-version <version>]"
     exit 1
 }
 
@@ -31,6 +31,12 @@ while [[ $# -gt 0 ]]; do
         shift # past argument
         shift # past value
         ;;
+        -version)
+        # Pin the agent version (e.g. 1.1.0 or v1.1.0); latest when omitted.
+        AGENT_VERSION="${2#v}"
+        shift # past argument
+        shift # past value
+        ;;
         *)
         usage
         ;;
@@ -50,8 +56,8 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 # Detect the OS package family so the installer works on both Debian/Ubuntu
-# (apt + build-essential + native UFW) and the RHEL family (dnf/yum + gcc/make
-# + UFW from EPEL).
+# (apt, the lsh-agent package from the Latitude.sh apt repository, native UFW)
+# and the RHEL family (dnf/yum, a source build with gcc/make, UFW from EPEL).
 if command -v apt-get &> /dev/null; then
     OS_FAMILY="debian"
 elif command -v dnf &> /dev/null; then
@@ -62,6 +68,10 @@ else
     echo "Unsupported OS: need apt-get (Debian/Ubuntu) or dnf/yum (RHEL family)."
     exit 1
 fi
+
+# Where Debian/Ubuntu get the lsh-agent package from. Overridable for testing
+# against a local repository or for a mirror.
+APT_REPO_URL="${LSH_AGENT_APT_REPO:-https://packages.lsh.io/apt}"
 
 # Function to install one or more packages
 install_package() {
@@ -93,11 +103,15 @@ if [ "$OS_FAMILY" = "debian" ] && netfilter_persistent_installed; then
     netfilter_persistent_was_installed=1
 fi
 
-# Install required packages
-for pkg in curl ufw jq git; do
-    if ! command -v $pkg &> /dev/null; then
+# Install required packages. git is only needed to build from source (RHEL family).
+required_packages=(curl ufw jq)
+if [ "$OS_FAMILY" = "rhel" ]; then
+    required_packages+=(git)
+fi
+for pkg in "${required_packages[@]}"; do
+    if ! command -v "$pkg" &> /dev/null; then
         echo "Installing $pkg..."
-        install_package $pkg || exit 1
+        install_package "$pkg" || exit 1
     fi
 done
 
@@ -146,14 +160,9 @@ EOF
     fi
 fi
 
-# Install the C build toolchain (required by Go's cgo for the net package):
-# build-essential on Debian/Ubuntu, gcc + make on the RHEL family.
-if [ "$OS_FAMILY" = "debian" ]; then
-    if ! dpkg -s build-essential &> /dev/null; then
-        echo "Installing build-essential..."
-        install_package build-essential || exit 1
-    fi
-elif ! command -v gcc &> /dev/null || ! command -v make &> /dev/null; then
+# Install the C build toolchain (required by Go's cgo for the net package) on
+# the RHEL family, the only one still building the agent from source.
+if [ "$OS_FAMILY" = "rhel" ] && { ! command -v gcc &> /dev/null || ! command -v make &> /dev/null; }; then
     echo "Installing gcc/make (build toolchain)..."
     install_package gcc make || exit 1
 fi
@@ -243,88 +252,117 @@ fi
 # Create directory structure
 mkdir -p /etc/lsh-agent
 
-# Go resolves GOPATH, GOMODCACHE and GOCACHE from $HOME. cloud-init (and any
-# systemd unit) runs this installer with HOME unset, which leaves GOPATH and
-# GOMODCACHE empty and GOCACHE "off", so the build below dies on
-#   go: module cache not found: neither GOMODCACHE nor GOPATH is set
-# That failure lands AFTER UFW has been switched to default-deny above, leaving
-# the host reachable only over SSH with no agent to write the project's firewall
-# rules into UFW.
-# Use a private, unpredictable workspace instead of a constant path. A fixed
-# /var/tmp/lsh-agent-build could be precreated by a local user (symlink or
-# ownership games against a root Go build) or clobbered by a second installer
-# running at the same time. mktemp -d gives us a fresh directory that is
-# root-owned, mode 0700, and randomly named, so neither of those can happen.
-GO_WORK_DIR="$(mktemp -d "${TMPDIR:-/var/tmp}/lsh-agent-build.XXXXXX")"
-export GOPATH="${GO_WORK_DIR}/gopath"
-export GOMODCACHE="${GO_WORK_DIR}/gopath/pkg/mod"
-export GOCACHE="${GO_WORK_DIR}/gocache"
-mkdir -p "$GOPATH" "$GOMODCACHE" "$GOCACHE"
+if [ "$OS_FAMILY" = "debian" ]; then
+    # Install the prebuilt lsh-agent package from the Latitude.sh apt repository:
+    # no Go toolchain, git clone or build on the host. The package ships the
+    # binary (/usr/bin), the systemd unit and the default config, restarts the
+    # agent on upgrades, and migrates a host set up by an older, source-building
+    # version of this script.
+    echo "Installing Latitude.sh Agent from ${APT_REPO_URL}..."
 
-# set -e aborts the moment any download/clone/build/copy below fails — before
-# the explicit cleanup near the end ever runs. Remove the build workspace and
-# the source clone from an EXIT trap so a failed install leaves nothing behind
-# for the next attempt to silently reuse a partial workspace.
-cleanup_build() {
-    rm -rf "$GO_WORK_DIR" /tmp/agent
-}
-trap cleanup_build EXIT
+    # A single file configures the repository: the deb822 entry carries the
+    # signing key inline, trusted for this repository only. Drop the one-line
+    # .list a manual setup may have left, which apt would reject as a
+    # conflicting Signed-By for the same source.
+    rm -f /etc/apt/sources.list.d/lsh-agent.list
+    curl -fsSL --retry 3 "${APT_REPO_URL}/lsh-agent.sources" -o /etc/apt/sources.list.d/lsh-agent.sources
+    apt-get update
 
-# Install Go if not present
-if ! command -v go &>/dev/null; then
-  GO_VERSION="1.23.4"
-  GO_PACKAGE="go${GO_VERSION}.linux-amd64.tar.gz"
+    # An explicit -version is installed as asked, even when that is a downgrade.
+    # confdef/confold keep a locally changed config.yaml instead of stopping at
+    # dpkg's conffile prompt, which fails without a terminal (cloud-init).
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --allow-downgrades \
+        -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold \
+        "lsh-agent${AGENT_VERSION:+=$AGENT_VERSION}"
 
-  echo "Installing Go..."
-  cd /tmp
-  curl -L -s https://golang.org/dl/${GO_PACKAGE} -o go.tar.gz
-  tar -C /usr/local -xzf go.tar.gz
-
-  echo 'export PATH=$PATH:/usr/local/go/bin' >> /etc/profile
-  export PATH=$PATH:/usr/local/go/bin
-
-  rm go.tar.gz
-
-  echo "Go $GO_VERSION installed successfully."
+    # This script used to install the agent to /usr/local/bin. Keep that path
+    # working for anything that still calls it or checks for it (e.g. an
+    # Ansible `creates:`).
+    ln -sf /usr/bin/lsh-agent /usr/local/bin/lsh-agent
 else
-  echo "Go is already installed: $(go version)"
-fi
+    # Go resolves GOPATH, GOMODCACHE and GOCACHE from $HOME. cloud-init (and any
+    # systemd unit) runs this installer with HOME unset, which leaves GOPATH and
+    # GOMODCACHE empty and GOCACHE "off", so the build below dies on
+    #   go: module cache not found: neither GOMODCACHE nor GOPATH is set
+    # That failure lands AFTER UFW has been switched to default-deny above, leaving
+    # the host reachable only over SSH with no agent to write the project's firewall
+    # rules into UFW.
+    # Use a private, unpredictable workspace instead of a constant path. A fixed
+    # /var/tmp/lsh-agent-build could be precreated by a local user (symlink or
+    # ownership games against a root Go build) or clobbered by a second installer
+    # running at the same time. mktemp -d gives us a fresh directory that is
+    # root-owned, mode 0700, and randomly named, so neither of those can happen.
+    GO_WORK_DIR="$(mktemp -d "${TMPDIR:-/var/tmp}/lsh-agent-build.XXXXXX")"
+    export GOPATH="${GO_WORK_DIR}/gopath"
+    export GOMODCACHE="${GO_WORK_DIR}/gopath/pkg/mod"
+    export GOCACHE="${GO_WORK_DIR}/gocache"
+    mkdir -p "$GOPATH" "$GOMODCACHE" "$GOCACHE"
+
+    # set -e aborts the moment any download/clone/build/copy below fails — before
+    # the explicit cleanup near the end ever runs. Remove the build workspace and
+    # the source clone from an EXIT trap so a failed install leaves nothing behind
+    # for the next attempt to silently reuse a partial workspace.
+    cleanup_build() {
+        rm -rf "$GO_WORK_DIR" /tmp/agent
+    }
+    trap cleanup_build EXIT
+
+    # Install Go if not present
+    if ! command -v go &>/dev/null; then
+      GO_VERSION="1.23.4"
+      GO_PACKAGE="go${GO_VERSION}.linux-amd64.tar.gz"
+
+      echo "Installing Go..."
+      cd /tmp
+      curl -L -s https://golang.org/dl/${GO_PACKAGE} -o go.tar.gz
+      tar -C /usr/local -xzf go.tar.gz
+
+      echo 'export PATH=$PATH:/usr/local/go/bin' >> /etc/profile
+      export PATH=$PATH:/usr/local/go/bin
+
+      rm go.tar.gz
+
+      echo "Go $GO_VERSION installed successfully."
+    else
+      echo "Go is already installed: $(go version)"
+    fi
 
 
-# Build and install Go agent from source
-echo "Building Latitude.sh Agent from source..."
-cd /tmp
-rm -rf agent
-git clone https://github.com/latitudesh/agent.git
-cd agent
+    # Build and install Go agent from source
+    echo "Building Latitude.sh Agent from source..."
+    cd /tmp
+    rm -rf agent
+    # -version builds that release tag instead of the tip of main.
+    git clone ${AGENT_VERSION:+--branch "v$AGENT_VERSION"} https://github.com/latitudesh/agent.git
+    cd agent
 
-# Remove problematic SDK dependency temporarily
-sed -i '/latitudesh-go-sdk/d' go.mod
+    # Remove problematic SDK dependency temporarily
+    sed -i '/latitudesh-go-sdk/d' go.mod
 
-# Build the agent
-export PATH=$PATH:/usr/local/go/bin
-/usr/local/go/bin/go mod tidy
-/usr/local/go/bin/go build -o lsh-agent ./cmd/agent
+    # Build the agent
+    export PATH=$PATH:/usr/local/go/bin
+    /usr/local/go/bin/go mod tidy
+    /usr/local/go/bin/go build -ldflags "-X main.Version=${AGENT_VERSION:-dev}" -o lsh-agent ./cmd/agent
 
-# Install binary and config. Writing straight onto /usr/local/bin/lsh-agent
-# fails with ETXTBSY ("Text file busy") whenever an agent is already running,
-# which makes every re-install and upgrade on a live host die here. rename(2)
-# has no such restriction: it swaps the directory entry while the running
-# process keeps its own inode, which the kernel frees on the restart below.
-# Stage the new binary in the same directory so the rename stays on one
-# filesystem, where it is atomic — no window with a half-written agent on disk.
-install -m 0755 lsh-agent /usr/local/bin/lsh-agent.new
-mv -f /usr/local/bin/lsh-agent.new /usr/local/bin/lsh-agent
-cp configs/agent.yaml /etc/lsh-agent/config.yaml
+    # Install binary and config. Writing straight onto /usr/local/bin/lsh-agent
+    # fails with ETXTBSY ("Text file busy") whenever an agent is already running,
+    # which makes every re-install and upgrade on a live host die here. rename(2)
+    # has no such restriction: it swaps the directory entry while the running
+    # process keeps its own inode, which the kernel frees on the restart below.
+    # Stage the new binary in the same directory so the rename stays on one
+    # filesystem, where it is atomic — no window with a half-written agent on disk.
+    install -m 0755 lsh-agent /usr/local/bin/lsh-agent.new
+    mv -f /usr/local/bin/lsh-agent.new /usr/local/bin/lsh-agent
+    cp configs/agent.yaml /etc/lsh-agent/config.yaml
 
-# Cleanup. The EXIT trap already covers every failure path above; run it now on
-# the success path too and clear it so it does not fire again at script exit.
-cd /
-cleanup_build
-trap - EXIT
+    # Cleanup. The EXIT trap already covers every failure path above; run it now on
+    # the success path too and clear it so it does not fire again at script exit.
+    cd /
+    cleanup_build
+    trap - EXIT
 
-# Create systemd service for Go agent
-cat > /etc/systemd/system/lsh-agent.service << 'EOF'
+    # Create systemd service for Go agent
+    cat > /etc/systemd/system/lsh-agent.service << 'EOF'
 [Unit]
 Description=Latitude.sh Agent
 After=network.target
@@ -340,6 +378,7 @@ User=root
 [Install]
 WantedBy=multi-user.target
 EOF
+fi
 
 # Get public IP address if PUBLIC_IP was not provided
 if [ -z "$PUBLIC_IP" ]; then
@@ -355,7 +394,8 @@ echo "PUBLIC_IP=$PUBLIC_IP" >> /etc/lsh-agent/env
 
 # Reload systemd, enable and (re)start the service. restart, not start: on a
 # re-install `start` is a no-op against the already-running agent, which would
-# leave the old binary serving from the inode the rename above just detached.
+# ignore the env file just written and, on a source build, leave the old binary
+# serving from the inode the rename above just detached.
 systemctl daemon-reload
 systemctl enable lsh-agent.service
 systemctl restart lsh-agent.service

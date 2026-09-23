@@ -26,12 +26,11 @@ GNUPGHOME=$(mktemp -d)
 export GNUPGHOME
 gpg --batch --passphrase '' --quick-gen-key 'lsh-agent CI <ci@example.invalid>' rsa3072 sign never
 repo=$(mktemp -d)
-bash "$root/scripts/build-apt-repo.sh" "$debs_dir" "$repo/apt"
+REPO_URL="file:$repo/apt" bash "$root/scripts/build-apt-repo.sh" "$debs_dir" "$repo/apt"
 chmod -R a+rX "$repo"
 
-install -d -m 0755 /etc/apt/keyrings
-cp "$repo/apt/lsh-agent.asc" /etc/apt/keyrings/lsh-agent.asc
-echo "deb [signed-by=/etc/apt/keyrings/lsh-agent.asc] file:$repo/apt stable main" > /etc/apt/sources.list.d/lsh-agent.list
+# Set the repository up the way users do: the one .sources file, key inline.
+cp "$repo/apt/lsh-agent.sources" /etc/apt/sources.list.d/lsh-agent.sources
 
 # What install.sh used to set up on the host.
 install -d /etc/systemd/system/multi-user.target.wants /etc/lsh-agent /usr/local/bin

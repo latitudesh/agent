@@ -19,7 +19,7 @@ Notes:
 - A Linux distribution with systemd:
   - Debian/Ubuntu — UFW ships natively, or
   - RHEL family (Rocky Linux / AlmaLinux 9 and 10) — the installer enables EPEL to provide UFW and disables `firewalld` so UFW owns the firewall
-- x86_64 (amd64) architecture — the install script downloads an amd64 Go toolchain (the [apt package](#installing-with-apt-debianubuntu) also supports arm64)
+- amd64 or arm64 on Debian/Ubuntu; amd64 only on the RHEL family, where the installer builds the agent from source with an amd64 Go toolchain
 - Root access
 - A firewall created in the [Latitude.sh dashboard](https://www.latitude.sh/dashboard) with the server added as an assignment
 
@@ -27,13 +27,15 @@ Notes:
 
 The recommended way to install the agent is through the dashboard: open your firewall, go to the **Overview** tab, expand **Agent Installation**, and run the provided command on the server.
 
-Alternatively, run the install script directly from this repository:
+Alternatively, run the installer yourself:
 
 ```bash
-sudo ./install.sh -firewall <firewall_id> -project <project_id> [-public_ip <public_ip>]
+curl -fsSL https://packages.lsh.io/install.sh | sudo bash -s -- -firewall <firewall_id> -project <project_id> [-public_ip <public_ip>] [-version <version>]
 ```
 
-The script installs the required dependencies, enables UFW with sane defaults (deny incoming, allow outgoing, allow SSH), builds the agent, and sets up the `lsh-agent` systemd service. On the RHEL family it also enables EPEL (which provides UFW) and disables `firewalld` so UFW owns the firewall.
+(or `sudo ./install.sh ...` from a clone of this repository). `-version` pins a release; the latest is installed otherwise.
+
+The script installs the required dependencies and enables UFW with sane defaults (deny incoming, allow outgoing, allow SSH). On Debian/Ubuntu it then installs the `lsh-agent` package from the [apt repository](#installing-with-apt-debianubuntu); on the RHEL family it enables EPEL (which provides UFW), disables `firewalld` so UFW owns the firewall, and builds the agent from source. Either way it writes `/etc/lsh-agent/env` and starts the `lsh-agent` systemd service, checking that it stays up.
 
 > **Important:** make sure the server is added to the firewall in the Latitude.sh dashboard, otherwise the agent will have no rules to sync.
 
@@ -42,9 +44,8 @@ The script installs the required dependencies, enables UFW with sane defaults (d
 The agent is also published as a `.deb` package in a signed apt repository, for Ubuntu 22.04+ and Debian 12+ on amd64 and arm64:
 
 ```bash
-sudo install -d -m 0755 /etc/apt/keyrings
-curl -fsSL https://packages.lsh.io/apt/lsh-agent.asc | sudo tee /etc/apt/keyrings/lsh-agent.asc > /dev/null
-echo "deb [signed-by=/etc/apt/keyrings/lsh-agent.asc] https://packages.lsh.io/apt stable main" | sudo tee /etc/apt/sources.list.d/lsh-agent.list
+# One file sets the repository up, signing key included
+sudo curl -fsSLo /etc/apt/sources.list.d/lsh-agent.sources https://packages.lsh.io/apt/lsh-agent.sources
 sudo apt-get update
 sudo apt-get install -y lsh-agent             # or lsh-agent=<version> to pin one
 ```
@@ -135,14 +136,14 @@ To redeploy the repository without a release (e.g. after rotating the key), run 
 ## Uninstalling
 
 ```bash
-sudo ./uninstall.sh
+curl -fsSL https://packages.lsh.io/uninstall.sh | sudo bash    # or: sudo ./uninstall.sh
 ```
 
-This stops and removes the service, the binary, and the agent files. The script reads `/etc/lsh-agent/env` (created by the installer) and exits if the file is missing — after a partial installation, remove the service and files manually.
+This stops and removes the service, the binary, and the agent files; on Debian/Ubuntu it also purges the `lsh-agent` package and removes the apt repository the installer added. The script reads `/etc/lsh-agent/env` (created by the installer) and exits if the file is missing — after a partial installation, remove the service and files manually.
 
 > **Warning:** the uninstall script also resets all UFW rules and disables UFW, leaving the server without a local firewall. Remember to remove the server from the firewall in the dashboard as well.
 
-If the agent was installed with apt, remove it with `sudo apt-get purge lsh-agent` instead. This stops the service and removes the agent and its configuration, but leaves UFW and its current rules in place.
+To remove only the agent and keep UFW and its current rules in place, run `sudo apt-get purge lsh-agent` instead.
 
 ## License
 
