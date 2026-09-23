@@ -51,7 +51,13 @@ fi
 # package owns, and drop the repository install.sh added.
 if command -v dpkg-query &> /dev/null && dpkg-query -W -f='${Status}' lsh-agent 2> /dev/null | grep -q "ok installed"; then
     print_colored "yellow" "Removing the lsh-agent package..."
-    apt-get purge -y lsh-agent
+    # Wait for another apt/dpkg run (e.g. unattended-upgrades) instead of
+    # failing on its lock, and stop if the purge still fails: carrying on would
+    # delete the files and reset UFW under a package dpkg still has installed.
+    if ! apt-get -o DPkg::Lock::Timeout=120 purge -y lsh-agent; then
+        print_colored "red" "Error: could not remove the lsh-agent package. The agent is stopped; files and UFW were left as they are. Re-run this script once apt is free."
+        exit 1
+    fi
     rm -f /etc/apt/sources.list.d/lsh-agent.sources
 fi
 
