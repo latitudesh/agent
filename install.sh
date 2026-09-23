@@ -83,9 +83,21 @@ install_package() {
 }
 
 # On the RHEL family, UFW ships in EPEL — enable it before the package loop.
-if [ "$OS_FAMILY" = "rhel" ] && ! rpm -q epel-release &> /dev/null; then
-    echo "Enabling EPEL (provides ufw on the RHEL family)..."
-    "$RPM_PM" install -y epel-release || { echo "Failed to enable EPEL; install epel-release and re-run."; exit 1; }
+# Skip it when ufw is already installed (every Latitude.sh EL image ships it):
+# EPEL is only needed to get ufw. Oracle Linux has no "epel-release" package;
+# its EPEL repo comes from oracle-epel-release-el<major>. OL9's happens to
+# Provide epel-release, OL10's does not, so installing "epel-release" fails there.
+if [ "$OS_FAMILY" = "rhel" ] && ! command -v ufw &> /dev/null; then
+    epel_pkg="epel-release"
+    # Read os-release in a subshell so its NAME/VERSION/ID don't leak into ours.
+    os_id="$( . /etc/os-release 2> /dev/null && echo "${ID:-}" )"
+    if [ "$os_id" = "ol" ]; then
+        epel_pkg="oracle-epel-release-el$( . /etc/os-release && echo "${VERSION_ID%%.*}" )"
+    fi
+    if ! rpm -q "$epel_pkg" &> /dev/null; then
+        echo "Enabling EPEL ($epel_pkg, provides ufw on the RHEL family)..."
+        "$RPM_PM" install -y "$epel_pkg" || { echo "Failed to enable EPEL; install $epel_pkg and re-run."; exit 1; }
+    fi
 fi
 
 # On the Debian family, ufw >= 0.36.2 declares "Breaks: iptables-persistent,
