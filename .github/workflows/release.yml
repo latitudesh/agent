@@ -4,8 +4,8 @@ on:
   push:
     tags:
       - "v*"
-  # Rebuild and redeploy the apt repository without cutting a release: first
-  # deploy after enabling Pages, signing key rotation, or a failed deploy.
+  # Rebuild and redeploy the apt repository from main without cutting a release:
+  # first deploy after enabling Pages, signing key rotation, or a failed deploy.
   workflow_dispatch:
 
 permissions:
@@ -38,11 +38,14 @@ jobs:
 
   apt-repo:
     needs: goreleaser
-    # After a release, or on its own via workflow_dispatch (goreleaser skipped).
-    # Pre-release tags (v1.2.0-rc.1) never reach the stable repository.
+    # After a release, or on its own via workflow_dispatch from main (goreleaser
+    # skipped). This job holds the signing key and runs the checked-out
+    # scripts, so a manual run from any other ref is refused. Pre-release tags
+    # (v1.2.0-rc.1) never reach the stable repository.
     if: >-
       always() &&
       (needs.goreleaser.result == 'success' || needs.goreleaser.result == 'skipped') &&
+      (github.event_name == 'push' || github.ref == 'refs/heads/main') &&
       !contains(github.ref_name, '-')
     runs-on: ubuntu-latest
     permissions:
@@ -72,6 +75,9 @@ jobs:
               curl -fsSL --retry 3 -o "debs/${url##*/}" "$url"
             done
 
+      # APT_SIGNING_KEY is a secret of the github-pages environment, not of the
+      # repository: only refs admitted by the environment's deployment rules
+      # (main and v* tags) can read it.
       - name: Import signing key
         env:
           APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}

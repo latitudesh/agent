@@ -123,9 +123,10 @@ Publish a GitHub Release with a new `vX.Y.Z` tag targeting `main`. The `release`
 
 The workflow needs:
 
-- the `APT_SIGNING_KEY` secret: the ASCII-armored private key that signs the repository, without a passphrase;
 - GitHub Pages deploying from GitHub Actions, with the custom domain `packages.lsh.io`;
-- a `v*` tag rule in the `github-pages` environment, so tag builds can deploy.
+- a `v*` tag rule in the `github-pages` environment, so tag builds can deploy;
+- the `APT_SIGNING_KEY` secret, the ASCII-armored private key that signs the repository (without a passphrase), stored as a secret of the `github-pages` environment rather than of the repository, so only `main` and `v*` tags can read it;
+- a tag ruleset restricting who can create `v*` tags, since pushing one publishes a release.
 
 To redeploy the repository without a release (e.g. after rotating the key), run the `release` workflow manually from `main`.
 
