@@ -119,7 +119,9 @@ See [TESTING.md](TESTING.md) for detailed testing instructions.
 
 ## Releasing
 
-Publish a GitHub Release with a new `vX.Y.Z` tag targeting `main`. The `release` workflow builds the binary and the `.deb` with GoReleaser, attaches them to the release, and redeploys the apt repository at `https://packages.lsh.io/apt` with the packages of every published release. Pre-release tags (e.g. `v1.2.0-rc.1`) get artifacts but are not added to the repository.
+Every merge into `main` updates a draft of the next release ([Release Drafter](https://github.com/release-drafter/release-drafter)): merged PRs grouped by type, and the next version resolved from their labels. The labels come from the conventional-commit PR titles: `feat` bumps the minor, `!` (e.g. `feat!:`) the major, and everything else the patch.
+
+To release, open the draft under **Releases**, review it and publish it. Publishing creates the `vX.Y.Z` tag, and the `release` workflow then builds the binaries and `.deb` packages with GoReleaser, attaches them to the release, and redeploys the apt repository at `https://packages.lsh.io/apt` with the packages of every published release. Pre-release tags (e.g. `v1.2.0-rc.1`) get artifacts but are not added to the repository.
 
 The workflow needs:
 

@@ -1,0 +1,36 @@
+name: release-drafter
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    # The only types the autolabeler handles.
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  # Keeps the next release drafted as PRs merge into main: version resolved from
+  # the PR labels, notes grouped by type. Publishing the draft creates the tag
+  # that runs release.yml.
+  update-draft:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - uses: release-drafter/release-drafter@34d80673e067bdc0c24568d3af899c216adcfaa9 # v7.7.0
+
+  # Labels PRs from their conventional-commit titles. Since v7 this is its own
+  # action; it reads the autolabeler section of .github/release-drafter.yml.
+  autolabel:
+    # The token of a PR from a fork is read-only and cannot add labels.
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: release-drafter/release-drafter/autolabeler@34d80673e067bdc0c24568d3af899c216adcfaa9 # v7.7.0
