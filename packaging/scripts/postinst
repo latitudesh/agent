@@ -29,12 +29,8 @@ migrate_from_install_sh() {
     fi
 }
 
-# Older install.sh versions wrote lsh-agent-netfilter-restore.service (it stands
-# in for netfilter-persistent, which ufw removes) without ordering it against
-# ufw. It restores /etc/iptables/rules.v{4,6} with --noflush, which also applies
-# the built-in chain policies in those files; restored after ufw, a policy-only
-# rules.v6 (":INPUT ACCEPT") resets ufw's DROP policy and drops the default-deny.
-# A drop-in orders it before ufw on those hosts without touching the unit file.
+# Older install.sh wrote lsh-agent-netfilter-restore.service without
+# Before=ufw.service; add it with a drop-in on those hosts.
 NETFILTER_RESTORE_UNIT="${NETFILTER_RESTORE_UNIT:-/etc/systemd/system/lsh-agent-netfilter-restore.service}"
 order_netfilter_restore_before_ufw() {
     [ -f "$NETFILTER_RESTORE_UNIT" ] || return 0

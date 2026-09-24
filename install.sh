@@ -123,18 +123,8 @@ done
 # does not, so without this the agent would silently drop the metadata redirect
 # on the next reboot.
 #
-# ufw's flush (flush_builtins in /lib/ufw/ufw-init-functions) only touches the
-# filter table (-F/-X plus the INPUT/OUTPUT/FORWARD policies), never nat — so
-# neither boot-time activation nor the `ufw reload` this agent issues on every
-# rule change can wipe the DNAT, and --noflush means we only ever add rules.
-#
-# But --noflush still APPLIES the built-in chain policies in the file: a
-# rules.v6 like the one Latitude's deploy templates write is policy-only
-# (":INPUT ACCEPT"), so restored AFTER ufw it flips ufw's DROP policy back to
-# ACCEPT and the default-deny is gone. Neither unit orders itself against the
-# other, so this one declares Before=ufw.service: rules first, then ufw sets its
-# policies on top. The rest mirrors netfilter-persistent's own ordering.
-# Hosts that got an older copy of this unit are fixed by the package postinst.
+# Before=ufw.service: --noflush still applies the file's chain policies, so a
+# policy-only rules.v6 restored after ufw would reset its DROP policy to ACCEPT.
 if [ "$netfilter_persistent_was_installed" = 1 ] && ! netfilter_persistent_installed; then
     if [ -f /etc/iptables/rules.v4 ] || [ -f /etc/iptables/rules.v6 ]; then
         echo "ufw replaced netfilter-persistent; preserving the /etc/iptables rules at boot..."
