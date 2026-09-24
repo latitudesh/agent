@@ -89,10 +89,12 @@ lines_missing() {
 
 @test "workflows: every apt-get retries and every curl uses the curl policy" {
   for f in "$REPO_ROOT"/.github/workflows/*.yml; do
-    run lines_missing "$f" 'apt-get .*(update|install)' 'Acquire::Retries=5'
+    run lines_missing "$f" 'apt-get .*(update|install)' '-o Acquire::Retries=5 -o Acquire::Retries::Delay=true -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30'
     output="$(grep -vF '"${net[@]}"' <<< "$output" || true)"
     [ -z "$output" ] || { echo "$f: $output"; false; }
     run lines_missing "$f" '(^|[[:space:]])curl ' '--retry 5 --retry-delay 3 --retry-connrefused'
     [ -z "$output" ] || { echo "$f: $output"; false; }
   done
+  # ci.yml passes the apt policy through the net array (exempted above).
+  assert_contains "$REPO_ROOT/.github/workflows/ci.yml" 'net=(-o Acquire::Retries=5 -o Acquire::Retries::Delay=true -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)'
 }
