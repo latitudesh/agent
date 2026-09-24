@@ -22,6 +22,8 @@ while [[ $# -gt 0 ]]; do
         shift # past value
         ;;
         -extra_parameters)
+        # Accepted for compatibility with existing install commands; unused.
+        # shellcheck disable=SC2034
         EXTRA_PARAMETERS="$2"
         shift # past argument
         shift # past value
@@ -88,7 +90,7 @@ install_package() {
 # its EPEL repo comes from oracle-epel-release-el<major>. OL9's happens to
 # Provide epel-release, OL10's does not, so installing "epel-release" fails there.
 #
-# Both functions are exercised in CI by scripts/test-install-epel.sh.
+# Both functions are covered by tests/install-epel.bats.
 OS_RELEASE_FILE=/etc/os-release
 
 # Print the EPEL release package for this host. os-release is read in a

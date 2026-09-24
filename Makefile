@@ -52,6 +52,14 @@ test:
 	@echo "Running tests..."
 	$(GOTEST) -v ./...
 
+# Bats suites for install.sh, uninstall.sh and the package scripts (no root,
+# no Docker), plus ShellCheck, as CI runs them.
+.PHONY: test-shell
+test-shell:
+	shellcheck --severity=warning install.sh uninstall.sh scripts/*.sh tests/lib/*.bash
+	shellcheck --severity=warning --shell=sh packaging/scripts/*
+	bats tests/
+
 # Build the .deb locally with GoReleaser (snapshot build, nothing is published)
 .PHONY: package
 package:
