@@ -27,6 +27,7 @@ jobs:
         run: |
           shellcheck --severity=warning install.sh uninstall.sh scripts/*.sh tests/lib/*.bash
           shellcheck --severity=warning --shell=sh packaging/scripts/*
+          shellcheck --severity=warning --shell=bash tests/*.bats
       - name: Bats (installer and package scripts)
         run: |
           if ! command -v bats > /dev/null 2>&1; then

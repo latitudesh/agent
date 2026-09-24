@@ -8,10 +8,14 @@ setup() {
   setup_scratch
   mkdir -p "$ROOT/etc/lsh-agent" "$ROOT/usr/local/bin"
   stub systemctl
+  # postrm probes /usr/bin/deb-systemd-helper by absolute path; point that
+  # probe at the stub so a runner's real helper is never executed.
+  stub deb-systemd-helper
 }
 
 postrm() {
-  run env PATH="$(stub_path)" ROOT="$ROOT" sh -c "$(rooted < "$POSTRM")" postrm "$@"
+  run env PATH="$(stub_path)" ROOT="$ROOT" \
+    sh -c "$(rooted < "$POSTRM" | sed "s#/usr/bin/deb-systemd-helper#$STUB_BIN/deb-systemd-helper#g")" postrm "$@"
 }
 
 # --- postrm -----------------------------------------------------------------
@@ -25,6 +29,17 @@ postrm() {
   postrm remove
   [ "$status" -eq 0 ]
   [ ! -L "$ROOT/usr/local/bin/lsh-agent" ]
+}
+
+@test "postrm remove masks the unit; purge purges and unmasks it" {
+  postrm remove
+  [ "$status" -eq 0 ]
+  called "deb-systemd-helper mask lsh-agent.service"
+  : > "$CALLS"
+  postrm purge
+  [ "$status" -eq 0 ]
+  called "deb-systemd-helper purge lsh-agent.service"
+  called "deb-systemd-helper unmask lsh-agent.service"
 }
 
 @test "postrm remove keeps a /usr/local/bin/lsh-agent that is not our link" {

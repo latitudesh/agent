@@ -97,7 +97,7 @@ fw() {
 @test "the restore is armed only around 'ufw --force enable'" {
   # trap set right before enabling UFW, cleared right after: a later failure
   # (package install, config) must not flip firewalld back on under a live UFW.
-  run grep -n -A2 'trap restore_firewalld EXIT' "$INSTALL_SH"
-  [[ "$output" == *"ufw --force enable"* ]]
-  [[ "$output" == *"trap - EXIT"* ]]
+  run grep -A2 -x '    trap restore_firewalld EXIT' "$INSTALL_SH"
+  [ "$status" -eq 0 ]
+  [ "$output" = "$(printf '    trap restore_firewalld EXIT\n    ufw --force enable\n    trap - EXIT')" ]
 }
