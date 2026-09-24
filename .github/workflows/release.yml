@@ -90,6 +90,9 @@ jobs:
           # Serve the installers from the same release, next to the repository
           # they install from.
           cp install.sh uninstall.sh site/
+          # Pages lists no directories: without a page, / and /apt/ are a 404.
+          scripts/build-landing-page.sh site/apt packaging/site/index.html site/index.html
+          cp site/index.html site/apt/index.html
 
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:

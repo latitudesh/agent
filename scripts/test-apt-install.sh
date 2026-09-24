@@ -19,22 +19,23 @@ root=$(dirname "$(dirname "$(realpath "$0")")")
 
 export DEBIAN_FRONTEND=noninteractive
 
-# install.sh's retry policy, plus an outer retry: CI hits the distro mirrors on
-# every run, and a mirror mid-sync (404s, "File has unexpected size") can last
-# minutes, longer than apt's own retries cover.
-apt_net() {
+# Mirrors behind one hostname can be out of sync (an index listing files one
+# server does not have yet, 404). Retry with a fresh index and DNS lookup, so a
+# job fails on the package under test, not on the distribution archive. Each
+# attempt uses install.sh's retry policy; a mirror sync can outlast it, hence
+# the outer retry.
+apt_net=(-o Acquire::Retries=5 -o Acquire::Retries::Delay=true -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
+apt_install() {
     local attempt
     for attempt in 1 2 3; do
-        apt-get -o Acquire::Retries=5 -o Acquire::Retries::Delay=true \
-            -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 "$@" && return 0
-        echo "apt-get $* failed (attempt $attempt/3)" >&2
+        apt-get "${apt_net[@]}" update -qq && apt-get "${apt_net[@]}" install -y "$@" && return 0
+        echo "apt-get install failed (attempt $attempt of 3)" >&2
         [ "$attempt" = 3 ] || sleep 60
     done
     return 1
 }
 
-apt_net update -qq
-apt_net install -y -qq --no-install-recommends apt-utils gnupg ca-certificates > /dev/null
+apt_install -qq --no-install-recommends apt-utils gnupg ca-certificates > /dev/null
 
 # The key is throwaway; the repository layout and signatures are the real thing.
 GNUPGHOME=$(mktemp -d)
@@ -43,6 +44,14 @@ gpg --batch --passphrase '' --quick-gen-key 'lsh-agent CI <ci@example.invalid>' 
 repo=$(mktemp -d)
 REPO_URL="file:$repo/apt" bash "$root/scripts/build-apt-repo.sh" "$debs_dir" "$repo/apt"
 chmod -R a+rX "$repo"
+
+echo "== landing page lists the packages"
+bash "$root/scripts/build-landing-page.sh" "$repo/apt" "$root/packaging/site/index.html" "$repo/index.html"
+grep -q '<a href="/apt/pool/main/l/lsh-agent/lsh-agent_' "$repo/index.html"
+if grep -q '<!-- PACKAGES -->' "$repo/index.html"; then
+    echo "The package list placeholder was left in the page" >&2
+    exit 1
+fi
 
 # Set the repository up the way users do: the one .sources file, key inline.
 cp "$repo/apt/lsh-agent.sources" /etc/apt/sources.list.d/lsh-agent.sources
@@ -59,8 +68,7 @@ chmod +x /usr/local/bin/lsh-agent
 cp "$root/configs/agent.yaml" /etc/lsh-agent/config.yaml
 printf 'FIREWALL_ID=fw_test\nPROJECT_ID=proj_test\n' > /etc/lsh-agent/env
 
-apt_net update -qq
-apt_net install -y lsh-agent
+apt_install lsh-agent
 
 echo "== installed from the repository"
 lsh-agent -version
