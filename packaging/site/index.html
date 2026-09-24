@@ -67,8 +67,10 @@ sudo apt-get install -y lsh-agent</code></pre>
   </table>
 
   <h2>Uninstall</h2>
+  <p>On a host set up with the installer:</p>
   <pre><code>curl -fsSL https://packages.lsh.io/uninstall.sh | sudo bash</code></pre>
-  <p>This also resets and disables UFW. To remove only the agent, run <code>sudo apt-get purge lsh-agent</code>.</p>
+  <p>This also resets and disables UFW. If you installed only the package, or want to keep UFW and its rules,
+    run <code>sudo apt-get purge lsh-agent</code> instead.</p>
 
   <footer>
     <a href="https://github.com/latitudesh/agent">Source</a> ·
