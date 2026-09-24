@@ -18,8 +18,21 @@ debs_dir=$(realpath "$1")
 root=$(dirname "$(dirname "$(realpath "$0")")")
 
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq
-apt-get install -y -qq --no-install-recommends apt-utils gnupg ca-certificates > /dev/null
+
+# Mirrors behind one hostname can be out of sync (an index listing files one
+# server does not have yet, 404). Retry with a fresh index and DNS lookup, so a
+# job fails on the package under test, not on the distribution archive.
+apt_install() {
+    local attempt
+    for attempt in 1 2 3; do
+        apt-get update -qq && apt-get install -y -o Acquire::Retries=3 "$@" && return 0
+        echo "apt-get install failed (attempt $attempt of 3)" >&2
+        sleep 20
+    done
+    return 1
+}
+
+apt_install -qq --no-install-recommends apt-utils gnupg ca-certificates > /dev/null
 
 # The key is throwaway; the repository layout and signatures are the real thing.
 GNUPGHOME=$(mktemp -d)
@@ -52,8 +65,7 @@ chmod +x /usr/local/bin/lsh-agent
 cp "$root/configs/agent.yaml" /etc/lsh-agent/config.yaml
 printf 'FIREWALL_ID=fw_test\nPROJECT_ID=proj_test\n' > /etc/lsh-agent/env
 
-apt-get update -qq
-apt-get install -y lsh-agent
+apt_install lsh-agent
 
 echo "== installed from the repository"
 lsh-agent -version

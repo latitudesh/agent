@@ -25,8 +25,10 @@ root=$(dirname "$(dirname "$(realpath "$0")")")
 # Turn the stock image into something that boots like a server before handing
 # PID 1 to systemd: procps (sysctl, which ufw calls) is on every real server
 # but not in the Debian images, and those images also ship a policy-rc.d that
-# blocks service starts from maintainer scripts. Installing at start-up rather
-# than in a docker build leaves no image or build cache behind.
+# blocks service starts from maintainer scripts. ufw comes preinstalled but
+# inactive, as on current Latitude images, which also keeps install.sh from
+# downloading anything off the distribution archive during the test. Installing
+# at start-up rather than in a docker build leaves no image or build cache behind.
 cid=$(docker run --detach --privileged --cgroupns=host \
     --volume /sys/fs/cgroup:/sys/fs/cgroup:rw \
     --volume "$root:/src:ro" --volume "$debs_dir:/debs:ro" \
@@ -38,7 +40,7 @@ cid=$(docker run --detach --privileged --cgroupns=host \
         for attempt in 1 2 3; do
             apt-get update -qq &&
                 DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends -o Acquire::Retries=3 \
-                    systemd systemd-sysv dbus procps ca-certificates curl gnupg apt-utils iproute2 > /dev/null &&
+                    systemd systemd-sysv dbus procps ufw ca-certificates curl gnupg apt-utils iproute2 > /dev/null &&
                 break
             echo "Installing systemd failed (attempt $attempt of 3)" >&2
             sleep 20
