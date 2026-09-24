@@ -111,7 +111,8 @@ Requires Go 1.23+.
 ```bash
 make build         # build ./build/lsh-agent
 make build-linux   # cross-compile for linux/amd64
-make test          # run tests
+make test          # run the Go tests
+make test-shell    # Bats + ShellCheck for install.sh, uninstall.sh and the package scripts
 make package       # build the .deb into ./dist (snapshot)
 make help          # list all targets
 ```

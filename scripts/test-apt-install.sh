@@ -21,13 +21,16 @@ export DEBIAN_FRONTEND=noninteractive
 
 # Mirrors behind one hostname can be out of sync (an index listing files one
 # server does not have yet, 404). Retry with a fresh index and DNS lookup, so a
-# job fails on the package under test, not on the distribution archive.
+# job fails on the package under test, not on the distribution archive. Each
+# attempt uses install.sh's retry policy; a mirror sync can outlast it, hence
+# the outer retry.
+apt_net=(-o Acquire::Retries=5 -o Acquire::Retries::Delay=true -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
 apt_install() {
     local attempt
     for attempt in 1 2 3; do
-        apt-get update -qq && apt-get install -y -o Acquire::Retries=3 "$@" && return 0
+        apt-get "${apt_net[@]}" update -qq && apt-get "${apt_net[@]}" install -y "$@" && return 0
         echo "apt-get install failed (attempt $attempt of 3)" >&2
-        sleep 20
+        [ "$attempt" = 3 ] || sleep 60
     done
     return 1
 }

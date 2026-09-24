@@ -36,14 +36,18 @@ cid=$(docker run --detach --privileged --cgroupns=host \
     "$image" bash -c '
         # Mirrors behind one hostname can be out of sync (an index listing
         # files one server does not have yet, 404). Retry with a fresh index
-        # and DNS lookup rather than fail the job on the archive.
+        # and DNS lookup rather than fail the job on the archive, using
+        # the install.sh retry policy on every call. Give up loudly: carrying on
+        # would boot a container without systemd.
+        net="-o Acquire::Retries=5 -o Acquire::Retries::Delay=true -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
         for attempt in 1 2 3; do
-            apt-get update -qq &&
-                DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends -o Acquire::Retries=3 \
+            apt-get $net update -qq &&
+                DEBIAN_FRONTEND=noninteractive apt-get $net install -y -qq --no-install-recommends \
                     systemd systemd-sysv dbus procps ufw ca-certificates curl gnupg apt-utils iproute2 > /dev/null &&
                 break
             echo "Installing systemd failed (attempt $attempt of 3)" >&2
-            sleep 20
+            [ "$attempt" = 3 ] && exit 1
+            sleep 60
         done
         rm -f /usr/sbin/policy-rc.d
         exec /sbin/init

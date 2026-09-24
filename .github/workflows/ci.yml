@@ -23,8 +23,18 @@ jobs:
           go-version: stable
       - run: go vet ./...
       - run: go test ./...
-      - run: scripts/test-install-epel.sh
-      - run: scripts/test-netfilter-restore-order.sh
+      - name: ShellCheck
+        run: |
+          shellcheck --severity=warning install.sh uninstall.sh scripts/*.sh tests/lib/*.bash
+          shellcheck --severity=warning --shell=sh packaging/scripts/*
+          shellcheck --severity=warning --shell=bash tests/*.bats
+      - name: Bats (installer and package scripts)
+        run: |
+          if ! command -v bats > /dev/null 2>&1; then
+            net=(-o Acquire::Retries=5 -o Acquire::Retries::Delay=true -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
+            sudo apt-get "${net[@]}" update && sudo apt-get "${net[@]}" install -y bats
+          fi
+          bats tests/
 
   package:
     runs-on: ubuntu-latest

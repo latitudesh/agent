@@ -22,6 +22,8 @@ while [[ $# -gt 0 ]]; do
         shift # past value
         ;;
         -extra_parameters)
+        # Accepted for compatibility with existing install commands; unused.
+        # shellcheck disable=SC2034
         EXTRA_PARAMETERS="$2"
         shift # past argument
         shift # past value
@@ -73,12 +75,19 @@ fi
 # against a local repository or for a mirror.
 APT_REPO_URL="${LSH_AGENT_APT_REPO:-https://packages.lsh.io/apt}"
 
+# Network retries, the same policy as tinkerbell-packer-images: a transient
+# mirror/CDN error (e.g. a distro mirror mid-sync) must not fail an install.
+# Passed per call, so nothing is left behind in the host's apt/dnf config.
+APT_RETRY_OPTS=(-o Acquire::Retries=5 -o Acquire::Retries::Delay=true -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
+DNF_RETRY_OPTS=(--setopt=retries=10 --setopt=timeout=30 --setopt=minrate=1000)
+CURL_RETRY_OPTS=(--retry 5 --retry-delay 3 --retry-connrefused)
+
 # Function to install one or more packages
 install_package() {
     if [ "$OS_FAMILY" = "debian" ]; then
-        apt-get update && apt-get install -y "$@"
+        apt-get "${APT_RETRY_OPTS[@]}" update && apt-get "${APT_RETRY_OPTS[@]}" install -y "$@"
     else
-        "$RPM_PM" install -y "$@"
+        "$RPM_PM" "${DNF_RETRY_OPTS[@]}" install -y "$@"
     fi
 }
 
@@ -88,7 +97,7 @@ install_package() {
 # its EPEL repo comes from oracle-epel-release-el<major>. OL9's happens to
 # Provide epel-release, OL10's does not, so installing "epel-release" fails there.
 #
-# Both functions are exercised in CI by scripts/test-install-epel.sh.
+# Both functions are covered by tests/install-epel.bats.
 OS_RELEASE_FILE=/etc/os-release
 
 # Print the EPEL release package for this host. os-release is read in a
@@ -112,7 +121,7 @@ enable_epel_if_needed() {
     epel_pkg="$(epel_package)"
     rpm -q "$epel_pkg" &> /dev/null && return 0
     echo "Enabling EPEL ($epel_pkg, provides ufw on the RHEL family)..."
-    "$RPM_PM" install -y "$epel_pkg" || { echo "Failed to enable EPEL; install $epel_pkg and re-run."; exit 1; }
+    "$RPM_PM" "${DNF_RETRY_OPTS[@]}" install -y "$epel_pkg" || { echo "Failed to enable EPEL; install $epel_pkg and re-run."; exit 1; }
 }
 
 enable_epel_if_needed
@@ -291,13 +300,13 @@ if [ "$OS_FAMILY" = "debian" ]; then
     # .list a manual setup may have left, which apt would reject as a
     # conflicting Signed-By for the same source.
     rm -f /etc/apt/sources.list.d/lsh-agent.list
-    curl -fsSL --retry 3 "${APT_REPO_URL}/lsh-agent.sources" -o /etc/apt/sources.list.d/lsh-agent.sources
-    apt-get update
+    curl -fsSL "${CURL_RETRY_OPTS[@]}" "${APT_REPO_URL}/lsh-agent.sources" -o /etc/apt/sources.list.d/lsh-agent.sources
+    apt-get "${APT_RETRY_OPTS[@]}" update
 
     # An explicit -version is installed as asked, even when that is a downgrade.
     # confdef/confold keep a locally changed config.yaml instead of stopping at
     # dpkg's conffile prompt, which fails without a terminal (cloud-init).
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --allow-downgrades \
+    DEBIAN_FRONTEND=noninteractive apt-get "${APT_RETRY_OPTS[@]}" install -y --allow-downgrades \
         -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold \
         "lsh-agent${AGENT_VERSION:+=$AGENT_VERSION}"
 
@@ -340,7 +349,7 @@ else
 
       echo "Installing Go..."
       cd /tmp
-      curl -L -s https://golang.org/dl/${GO_PACKAGE} -o go.tar.gz
+      curl -fsSL "${CURL_RETRY_OPTS[@]}" "https://golang.org/dl/${GO_PACKAGE}" -o go.tar.gz
       tar -C /usr/local -xzf go.tar.gz
 
       echo 'export PATH=$PATH:/usr/local/go/bin' >> /etc/profile
@@ -357,9 +366,17 @@ else
     # Build and install Go agent from source
     echo "Building Latitude.sh Agent from source..."
     cd /tmp
-    rm -rf agent
-    # -version builds that release tag instead of the tip of main.
-    git clone ${AGENT_VERSION:+--branch "v$AGENT_VERSION"} https://github.com/latitudesh/agent.git
+    # -version builds that release tag instead of the tip of main. git has no
+    # retry of its own, so give a transient GitHub error three tries.
+    for attempt in 1 2 3; do
+        rm -rf agent
+        git clone ${AGENT_VERSION:+--branch "v$AGENT_VERSION"} https://github.com/latitudesh/agent.git && break
+        if [ "$attempt" = 3 ]; then
+            echo "Failed to clone https://github.com/latitudesh/agent.git"
+            exit 1
+        fi
+        sleep 5
+    done
     cd agent
 
     # Remove problematic SDK dependency temporarily
