@@ -1,0 +1,81 @@
+<!doctype html>
+<!-- Landing page of https://packages.lsh.io, served at / and /apt/. Links are
+     absolute so the same file works from both. scripts/build-landing-page.sh
+     fills in the package list at deploy time. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Latitude.sh Agent packages</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #ffffff; --fg: #1f2328; --muted: #59636e; --link: #0969da;
+      --code-bg: #f6f8fa; --border: #d1d9e0;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0d1117; --fg: #e6edf3; --muted: #9198a1; --link: #4493f8;
+        --code-bg: #161b22; --border: #3d444d;
+      }
+    }
+    body { font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; max-width: 48rem; margin: 3rem auto; padding: 0 1.25rem; background: var(--bg); color: var(--fg); }
+    a { color: var(--link); }
+    h1 { font-size: 1.6rem; margin-bottom: 0.25rem; }
+    h2 { font-size: 1.15rem; margin-top: 2rem; }
+    p.lead { color: var(--muted); margin-top: 0; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    pre { background: var(--code-bg); border: 1px solid var(--border); padding: 0.9rem 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.9rem; }
+    p code, td code { background: var(--code-bg); border: 1px solid var(--border); padding: 0.05em 0.35em; border-radius: 4px; white-space: nowrap; font-size: 0.88em; }
+    table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+    th, td { text-align: left; padding: 0.45rem 0.6rem; border-bottom: 1px solid var(--border); }
+    th { color: var(--muted); font-weight: 600; }
+    footer { margin-top: 3rem; color: var(--muted); font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <h1>Latitude.sh Agent packages</h1>
+  <p class="lead">apt repository for <code>lsh-agent</code>, which keeps a server's UFW firewall in sync with the
+    <a href="https://www.latitude.sh/docs/networking/firewall">Latitude.sh Firewall</a>.
+    Ubuntu 22.04+ and Debian 12+, on amd64 and arm64.</p>
+
+  <h2>Install</h2>
+  <p>The dashboard gives you this command, with your IDs filled in: open your firewall, go to
+    <strong>Overview</strong> and expand <strong>Agent Installation</strong>.</p>
+  <pre><code>curl -fsSL https://packages.lsh.io/install.sh \
+  | sudo bash -s -- -firewall &lt;firewall_id&gt; -project &lt;project_id&gt;</code></pre>
+  <p>It installs the agent from this repository, enables UFW with safe defaults (deny incoming, allow outgoing,
+    allow SSH) and starts the <code>lsh-agent</code> service. Add <code>-version &lt;version&gt;</code> to pin a release.</p>
+
+  <h2>Use the repository directly</h2>
+  <pre><code>sudo curl -fsSLo /etc/apt/sources.list.d/lsh-agent.sources \
+  https://packages.lsh.io/apt/lsh-agent.sources
+sudo apt-get update
+sudo apt-get install -y lsh-agent</code></pre>
+  <p>The package does not configure the host: see
+    <a href="https://github.com/latitudesh/agent#installing-with-apt-debianubuntu">Installing with apt</a>
+    for binding it to your firewall and enabling UFW. Packages are signed with
+    <a href="/apt/lsh-agent.asc">this key</a>, which <code>lsh-agent.sources</code> already includes.</p>
+
+  <h2>Packages</h2>
+  <p>Every published release stays available; pin one with <code>apt-get install lsh-agent=&lt;version&gt;</code>.</p>
+  <table>
+    <thead><tr><th>Version</th><th>Architecture</th><th>Package</th><th>Size</th><th>SHA256</th></tr></thead>
+    <tbody>
+<!-- PACKAGES -->
+    </tbody>
+  </table>
+
+  <h2>Uninstall</h2>
+  <p>On a host set up with the installer:</p>
+  <pre><code>curl -fsSL https://packages.lsh.io/uninstall.sh | sudo bash</code></pre>
+  <p>This also resets and disables UFW. If you installed only the package, or want to keep UFW and its rules,
+    run <code>sudo apt-get purge lsh-agent</code> instead.</p>
+
+  <footer>
+    <a href="https://github.com/latitudesh/agent">Source</a> ·
+    <a href="https://github.com/latitudesh/agent/releases">Releases</a> ·
+    <a href="https://github.com/latitudesh/agent#readme">Documentation</a>
+  </footer>
+</body>
+</html>

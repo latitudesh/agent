@@ -18,8 +18,21 @@ debs_dir=$(realpath "$1")
 root=$(dirname "$(dirname "$(realpath "$0")")")
 
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq
-apt-get install -y -qq --no-install-recommends apt-utils gnupg ca-certificates > /dev/null
+
+# Mirrors behind one hostname can be out of sync (an index listing files one
+# server does not have yet, 404). Retry with a fresh index and DNS lookup, so a
+# job fails on the package under test, not on the distribution archive.
+apt_install() {
+    local attempt
+    for attempt in 1 2 3; do
+        apt-get update -qq && apt-get install -y -o Acquire::Retries=3 "$@" && return 0
+        echo "apt-get install failed (attempt $attempt of 3)" >&2
+        sleep 20
+    done
+    return 1
+}
+
+apt_install -qq --no-install-recommends apt-utils gnupg ca-certificates > /dev/null
 
 # The key is throwaway; the repository layout and signatures are the real thing.
 GNUPGHOME=$(mktemp -d)
@@ -28,6 +41,14 @@ gpg --batch --passphrase '' --quick-gen-key 'lsh-agent CI <ci@example.invalid>' 
 repo=$(mktemp -d)
 REPO_URL="file:$repo/apt" bash "$root/scripts/build-apt-repo.sh" "$debs_dir" "$repo/apt"
 chmod -R a+rX "$repo"
+
+echo "== landing page lists the packages"
+bash "$root/scripts/build-landing-page.sh" "$repo/apt" "$root/packaging/site/index.html" "$repo/index.html"
+grep -q '<a href="/apt/pool/main/l/lsh-agent/lsh-agent_' "$repo/index.html"
+if grep -q '<!-- PACKAGES -->' "$repo/index.html"; then
+    echo "The package list placeholder was left in the page" >&2
+    exit 1
+fi
 
 # Set the repository up the way users do: the one .sources file, key inline.
 cp "$repo/apt/lsh-agent.sources" /etc/apt/sources.list.d/lsh-agent.sources
@@ -44,8 +65,7 @@ chmod +x /usr/local/bin/lsh-agent
 cp "$root/configs/agent.yaml" /etc/lsh-agent/config.yaml
 printf 'FIREWALL_ID=fw_test\nPROJECT_ID=proj_test\n' > /etc/lsh-agent/env
 
-apt-get update -qq
-apt-get install -y lsh-agent
+apt_install lsh-agent
 
 echo "== installed from the repository"
 lsh-agent -version
