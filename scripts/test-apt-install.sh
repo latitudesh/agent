@@ -29,6 +29,14 @@ repo=$(mktemp -d)
 REPO_URL="file:$repo/apt" bash "$root/scripts/build-apt-repo.sh" "$debs_dir" "$repo/apt"
 chmod -R a+rX "$repo"
 
+echo "== landing page lists the packages"
+bash "$root/scripts/build-landing-page.sh" "$repo/apt" "$root/packaging/site/index.html" "$repo/index.html"
+grep -q '<a href="/apt/pool/main/l/lsh-agent/lsh-agent_' "$repo/index.html"
+if grep -q '<!-- PACKAGES -->' "$repo/index.html"; then
+    echo "The package list placeholder was left in the page" >&2
+    exit 1
+fi
+
 # Set the repository up the way users do: the one .sources file, key inline.
 cp "$repo/apt/lsh-agent.sources" /etc/apt/sources.list.d/lsh-agent.sources
 
