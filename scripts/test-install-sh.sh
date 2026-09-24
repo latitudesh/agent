@@ -32,9 +32,17 @@ cid=$(docker run --detach --privileged --cgroupns=host \
     --volume "$root:/src:ro" --volume "$debs_dir:/debs:ro" \
     --add-host api.latitude.sh:127.0.0.1 \
     "$image" bash -c '
-        apt-get update -qq
-        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
-            systemd systemd-sysv dbus procps ca-certificates curl gnupg apt-utils iproute2 > /dev/null
+        # Mirrors behind one hostname can be out of sync (an index listing
+        # files one server does not have yet, 404). Retry with a fresh index
+        # and DNS lookup rather than fail the job on the archive.
+        for attempt in 1 2 3; do
+            apt-get update -qq &&
+                DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends -o Acquire::Retries=3 \
+                    systemd systemd-sysv dbus procps ca-certificates curl gnupg apt-utils iproute2 > /dev/null &&
+                break
+            echo "Installing systemd failed (attempt $attempt of 3)" >&2
+            sleep 20
+        done
         rm -f /usr/sbin/policy-rc.d
         exec /sbin/init
     ')
