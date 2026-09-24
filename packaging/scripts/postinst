@@ -29,8 +29,21 @@ migrate_from_install_sh() {
     fi
 }
 
+# Older install.sh wrote lsh-agent-netfilter-restore.service without
+# Before=ufw.service; add it with a drop-in on those hosts.
+NETFILTER_RESTORE_UNIT="${NETFILTER_RESTORE_UNIT:-/etc/systemd/system/lsh-agent-netfilter-restore.service}"
+order_netfilter_restore_before_ufw() {
+    [ -f "$NETFILTER_RESTORE_UNIT" ] || return 0
+    grep -qE '^Before=(.*[[:space:]])?ufw\.service([[:space:]]|$)' "$NETFILTER_RESTORE_UNIT" && return 0
+    dropin_dir="$NETFILTER_RESTORE_UNIT.d"
+    mkdir -p "$dropin_dir"
+    printf '[Unit]\nBefore=ufw.service\n' > "$dropin_dir/10-before-ufw.conf"
+    echo "Ordering lsh-agent-netfilter-restore before ufw..."
+}
+
 if [ "$1" = "configure" ]; then
     migrate_from_install_sh
+    order_netfilter_restore_before_ufw
 fi
 
 # The unit handling below is what debhelper's dh_installsystemd generates:
