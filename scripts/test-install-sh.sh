@@ -117,12 +117,17 @@ run 'systemctl is-active --quiet lsh-agent.service'
 
 echo "== uninstall.sh"
 run 'bash /src/uninstall.sh'
+# "! cmd" would not trip errexit, so negative checks fail explicitly.
 run '
-    ! dpkg-query -W -f="\${Status}" lsh-agent 2> /dev/null | grep -q "ok installed"
+    if dpkg-query -W -f="\${Status}" lsh-agent 2> /dev/null | grep -q "ok installed"; then
+        echo "lsh-agent is still installed" >&2; exit 1
+    fi
     test ! -e /etc/apt/sources.list.d/lsh-agent.sources
     test ! -e /usr/local/bin/lsh-agent
     test ! -e /etc/lsh-agent
-    ! systemctl is-active --quiet lsh-agent.service
+    if systemctl is-active --quiet lsh-agent.service; then
+        echo "lsh-agent.service is still active" >&2; exit 1
+    fi
 '
 
 echo "OK"
