@@ -23,6 +23,7 @@ jobs:
           go-version: stable
       - run: go vet ./...
       - run: go test ./...
+      - run: scripts/test-install-epel.sh
       - run: scripts/test-netfilter-restore-order.sh
 
   package:
