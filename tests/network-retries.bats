@@ -12,9 +12,10 @@ setup() {
   setup_scratch
 }
 
-# Code lines (comments skipped) matching $2 in file $1 that lack $3.
+# Code lines matching $2 in file $1 that lack $3. Comments and messages
+# (echo/printf, e.g. "apt-get install failed") are not calls, so skipped.
 lines_missing() {
-  grep -nE -- "$2" "$1" | grep -vE '^[0-9]+:[[:space:]]*#' | grep -vF -- "$3" || true
+  grep -nE -- "$2" "$1" | grep -vE '^[0-9]+:[[:space:]]*(#|echo |printf )' | grep -vF -- "$3" || true
 }
 
 # --- the policy itself ------------------------------------------------------
