@@ -32,9 +32,17 @@ cid=$(docker run --detach --privileged --cgroupns=host \
     --volume "$root:/src:ro" --volume "$debs_dir:/debs:ro" \
     --add-host api.latitude.sh:127.0.0.1 \
     "$image" bash -c '
-        apt-get update -qq
-        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
-            systemd systemd-sysv dbus procps ca-certificates curl gnupg apt-utils iproute2 > /dev/null
+        # install.sh retry policy + an outer retry for a distro mirror mid-sync.
+        net="-o Acquire::Retries=5 -o Acquire::Retries::Delay=true -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+        for attempt in 1 2 3; do
+            apt-get $net update -qq &&
+                DEBIAN_FRONTEND=noninteractive apt-get $net install -y -qq --no-install-recommends \
+                    systemd systemd-sysv dbus procps ca-certificates curl gnupg apt-utils iproute2 > /dev/null &&
+                break
+            echo "container setup: apt-get failed (attempt $attempt/3)" >&2
+            [ "$attempt" = 3 ] && exit 1
+            sleep 60
+        done
         rm -f /usr/sbin/policy-rc.d
         exec /sbin/init
     ')

@@ -9,7 +9,8 @@ load lib/agent-test
 
 setup() {
   setup_scratch
-  FUNCS="$(extract_fn "$INSTALL_SH" epel_package enable_epel_if_needed)"
+  FUNCS="$(retry_policy)"$'\n'"$(extract_fn "$INSTALL_SH" epel_package enable_epel_if_needed)"
+  DNF="dnf --setopt=retries=10 --setopt=timeout=30 --setopt=minrate=1000"
 }
 
 # run_epel <ID> <VERSION_ID> <ufw:yes|no> <epel-rpm-installed:yes|no> <dnf-rc>
@@ -31,25 +32,25 @@ run_epel() {
 @test "Oracle Linux 10 without ufw installs oracle-epel-release-el10" {
   run_epel ol 10.0 no no 0
   [ "$status" -eq 0 ]
-  called "dnf install -y oracle-epel-release-el10"
+  called "$DNF install -y oracle-epel-release-el10"
 }
 
 @test "Oracle Linux 9 without ufw installs oracle-epel-release-el9" {
   run_epel ol 9.6 no no 0
   [ "$status" -eq 0 ]
-  called "dnf install -y oracle-epel-release-el9"
+  called "$DNF install -y oracle-epel-release-el9"
 }
 
 @test "AlmaLinux 9 without ufw installs epel-release" {
   run_epel almalinux 9.6 no no 0
   [ "$status" -eq 0 ]
-  called "dnf install -y epel-release"
+  called "$DNF install -y epel-release"
 }
 
 @test "Rocky 10 without ufw installs epel-release" {
   run_epel rocky 10.0 no no 0
   [ "$status" -eq 0 ]
-  called "dnf install -y epel-release"
+  called "$DNF install -y epel-release"
 }
 
 @test "ufw already present (every Latitude EL image): EPEL is skipped" {
@@ -70,7 +71,7 @@ run_epel() {
 @test "a failing EPEL install fails the installer" {
   run_epel ol 10.0 no no 1
   [ "$status" -eq 1 ]
-  called "dnf install -y oracle-epel-release-el10"
+  called "$DNF install -y oracle-epel-release-el10"
 }
 
 @test "Debian family never touches EPEL" {

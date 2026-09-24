@@ -45,6 +45,15 @@ extract_fn() {
   printf '%s' "$out"
 }
 
+# The installer's network retry policy (APT_/DNF_/CURL_RETRY_OPTS), as shell
+# source to eval next to extracted functions that use it.
+retry_policy() {
+  local out
+  out="$(grep -E '^(APT|DNF|CURL)_RETRY_OPTS=\(' "$INSTALL_SH")"
+  [ "$(grep -c . <<< "$out")" -eq 3 ] || { echo "retry_policy: expected 3 *_RETRY_OPTS in install.sh" >&2; return 1; }
+  printf '%s\n' "$out"
+}
+
 # Rewrite absolute host paths in script source so it runs against $ROOT.
 # Left alone: symlink targets compared as plain strings (/usr/bin/lsh-agent)
 # and unit-file content matched by grep (ExecStart=/usr/local/bin/...).

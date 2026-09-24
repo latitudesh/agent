@@ -18,8 +18,23 @@ debs_dir=$(realpath "$1")
 root=$(dirname "$(dirname "$(realpath "$0")")")
 
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq
-apt-get install -y -qq --no-install-recommends apt-utils gnupg ca-certificates > /dev/null
+
+# install.sh's retry policy, plus an outer retry: CI hits the distro mirrors on
+# every run, and a mirror mid-sync (404s, "File has unexpected size") can last
+# minutes, longer than apt's own retries cover.
+apt_net() {
+    local attempt
+    for attempt in 1 2 3; do
+        apt-get -o Acquire::Retries=5 -o Acquire::Retries::Delay=true \
+            -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 "$@" && return 0
+        echo "apt-get $* failed (attempt $attempt/3)" >&2
+        [ "$attempt" = 3 ] || sleep 60
+    done
+    return 1
+}
+
+apt_net update -qq
+apt_net install -y -qq --no-install-recommends apt-utils gnupg ca-certificates > /dev/null
 
 # The key is throwaway; the repository layout and signatures are the real thing.
 GNUPGHOME=$(mktemp -d)
@@ -44,8 +59,8 @@ chmod +x /usr/local/bin/lsh-agent
 cp "$root/configs/agent.yaml" /etc/lsh-agent/config.yaml
 printf 'FIREWALL_ID=fw_test\nPROJECT_ID=proj_test\n' > /etc/lsh-agent/env
 
-apt-get update -qq
-apt-get install -y lsh-agent
+apt_net update -qq
+apt_net install -y lsh-agent
 
 echo "== installed from the repository"
 lsh-agent -version
