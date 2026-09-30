@@ -1,6 +1,8 @@
 package collectors
 
 import (
+	"context"
+	"strings"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -225,6 +227,117 @@ To                         Action      From
 	}
 	if len(toRemove) != 0 {
 		t.Errorf("expected no rules to remove, got %d: %+v", len(toRemove), toRemove)
+	}
+}
+
+// TestSyncDiff_StableForAnyDestinationCaseSensitive guards the case-sensitive
+// path: the API sends To "ANY" while ufw status shows no destination (parsed as
+// "any"). Without case-insensitive normalization the rule is re-added and
+// deleted on every sync.
+func TestSyncDiff_StableForAnyDestinationCaseSensitive(t *testing.T) {
+	fc := NewFirewallCollector("ufw", true, logrus.New())
+
+	apiRules := []FirewallRule{
+		{From: "172.16.0.0/13", To: "ANY", Protocol: "tcp", Port: "1:65535"},
+	}
+
+	ufwOutput := `Status: active
+
+To                         Action      From
+--                         ------      ----
+1:65535/tcp                ALLOW       172.16.0.0/13
+`
+
+	currentRules, err := fc.parseUFWRules(ufwOutput)
+	if err != nil {
+		t.Fatalf("parseUFWRules: %v", err)
+	}
+
+	apiSet := fc.rulesToStringSet(apiRules)
+	currentSet := fc.rulesToStringSet(currentRules)
+	if toAdd := fc.findRulesToAdd(currentSet, apiSet, apiRules); len(toAdd) != 0 {
+		t.Errorf("expected no rules to add, got %d: %+v", len(toAdd), toAdd)
+	}
+	if toRemove := fc.findRulesToRemove(currentSet, apiSet, currentRules); len(toRemove) != 0 {
+		t.Errorf("expected no rules to remove, got %d: %+v", len(toRemove), toRemove)
+	}
+}
+
+// TestSyncFirewallRules_NoCommandsWhenInSync drives SyncFirewallRules end-to-end
+// with a fake command runner and asserts that an already-synced set of
+// port-range rules issues no mutating ufw command — in particular no reload.
+func TestSyncFirewallRules_NoCommandsWhenInSync(t *testing.T) {
+	fc := NewFirewallCollector("ufw", false, logrus.New())
+
+	status := `Status: active
+
+To                         Action      From
+--                         ------      ----
+10.4.0.0/24 1:65535/tcp    ALLOW       10.4.0.0/24
+1:65535/udp                ALLOW       172.16.0.0/13
+`
+	var calls [][]string
+	fc.run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		calls = append(calls, append([]string{name}, args...))
+		if len(args) > 0 && args[len(args)-1] == "status" {
+			return []byte(status), nil
+		}
+		return nil, nil
+	}
+
+	apiJSON := `{"firewall":{"rules":[
+		{"from":"10.4.0.0/24","to":"10.4.0.0/24","protocol":"tcp","port":"1:65535"},
+		{"from":"172.16.0.0/13","to":"ANY","protocol":"udp","port":"1:65535"}
+	]}}`
+
+	if err := fc.SyncFirewallRules(context.Background(), apiJSON); err != nil {
+		t.Fatalf("SyncFirewallRules: %v", err)
+	}
+
+	for _, c := range calls {
+		joined := strings.Join(c, " ")
+		if strings.Contains(joined, "allow") || strings.Contains(joined, "delete") || strings.Contains(joined, "reload") {
+			t.Errorf("expected only `ufw status`, got mutating command: %q", joined)
+		}
+	}
+}
+
+// TestSyncFirewallRules_AddsRuleWithoutReload confirms a genuine rule addition
+// applies the rule live (`ufw allow`) and does NOT fall back to `ufw reload`.
+func TestSyncFirewallRules_AddsRuleWithoutReload(t *testing.T) {
+	fc := NewFirewallCollector("ufw", false, logrus.New())
+
+	status := "Status: active\n\nTo                         Action      From\n--                         ------      ----\n"
+	var calls [][]string
+	fc.run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		calls = append(calls, append([]string{name}, args...))
+		if len(args) > 0 && args[len(args)-1] == "status" {
+			return []byte(status), nil
+		}
+		return nil, nil
+	}
+
+	apiJSON := `{"firewall":{"rules":[{"from":"10.4.0.0/24","to":"10.4.0.0/24","protocol":"tcp","port":"1:65535"}]}}`
+
+	if err := fc.SyncFirewallRules(context.Background(), apiJSON); err != nil {
+		t.Fatalf("SyncFirewallRules: %v", err)
+	}
+
+	var sawAllow, sawReload bool
+	for _, c := range calls {
+		joined := strings.Join(c, " ")
+		if strings.Contains(joined, "allow") {
+			sawAllow = true
+		}
+		if strings.Contains(joined, "reload") {
+			sawReload = true
+		}
+	}
+	if !sawAllow {
+		t.Errorf("expected an `ufw allow` command, calls: %v", calls)
+	}
+	if sawReload {
+		t.Errorf("did not expect an `ufw reload` command, calls: %v", calls)
 	}
 }
 

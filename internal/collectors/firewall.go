@@ -40,12 +40,13 @@ func (r FirewallRule) String() string {
 }
 
 // normalizeAddr normalizes a source/destination address so the diff key is
-// stable across the API and ufw status output. Empty values and the ufw
-// "Anywhere" label collapse to "any", and /32 and /128 host suffixes are
-// stripped (ufw status omits them).
+// stable across the API and ufw status output. Empty values and the "anywhere"
+// / "any" labels collapse to "any" (matched case-insensitively, since the API
+// may send "ANY" while ufw status prints "Anywhere"), and /32 and /128 host
+// suffixes are stripped (ufw status omits them).
 func normalizeAddr(addr string) string {
 	a := strings.TrimSpace(addr)
-	if a == "" || a == "Anywhere" {
+	if a == "" || strings.EqualFold(a, "Anywhere") || strings.EqualFold(a, "any") {
 		return "any"
 	}
 	a = strings.TrimSuffix(a, "/32")
@@ -60,11 +61,21 @@ type FirewallResponse struct {
 	} `json:"firewall"`
 }
 
+// commandRunner executes an external command and returns its combined output.
+// It is a field on FirewallCollector so tests can capture the exact ufw
+// commands a sync issues (e.g. to assert that no `ufw reload` is run).
+type commandRunner func(ctx context.Context, name string, args ...string) ([]byte, error)
+
+func execRunner(ctx context.Context, name string, args ...string) ([]byte, error) {
+	return exec.CommandContext(ctx, name, args...).CombinedOutput()
+}
+
 // FirewallCollector handles firewall rule collection and synchronization
 type FirewallCollector struct {
 	ufwBinary     string
 	caseSensitive bool
 	logger        *logrus.Logger
+	run           commandRunner
 }
 
 // NewFirewallCollector creates a new firewall collector
@@ -73,13 +84,13 @@ func NewFirewallCollector(ufwBinary string, caseSensitive bool, logger *logrus.L
 		ufwBinary:     ufwBinary,
 		caseSensitive: caseSensitive,
 		logger:        logger,
+		run:           execRunner,
 	}
 }
 
 // GetCurrentUFWRules retrieves current UFW rules from the system
 func (fc *FirewallCollector) GetCurrentUFWRules(ctx context.Context) ([]FirewallRule, error) {
-	cmd := exec.CommandContext(ctx, "sudo", fc.ufwBinary, "status")
-	output, err := cmd.Output()
+	output, err := fc.run(ctx, "sudo", fc.ufwBinary, "status")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get UFW status: %w", err)
 	}
@@ -265,13 +276,11 @@ func (fc *FirewallCollector) addUFWRule(ctx context.Context, rule FirewallRule) 
 	// UFW requires lowercase protocol names
 	protocol := strings.ToLower(rule.Protocol)
 
-	cmd := exec.CommandContext(ctx, "sudo", fc.ufwBinary, "allow",
+	output, err := fc.run(ctx, "sudo", fc.ufwBinary, "allow",
 		"proto", protocol,
 		"from", from,
 		"to", to,
 		"port", rule.Port)
-
-	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("UFW command failed: %w, output: %s", err, string(output))
 	}
@@ -294,13 +303,11 @@ func (fc *FirewallCollector) removeUFWRule(ctx context.Context, rule FirewallRul
 	// UFW requires lowercase protocol names
 	protocol := strings.ToLower(rule.Protocol)
 
-	cmd := exec.CommandContext(ctx, "sudo", fc.ufwBinary, "delete", "allow",
+	output, err := fc.run(ctx, "sudo", fc.ufwBinary, "delete", "allow",
 		"from", from,
 		"to", to,
 		"port", rule.Port,
 		"proto", protocol)
-
-	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("UFW delete command failed: %w, output: %s", err, string(output))
 	}
