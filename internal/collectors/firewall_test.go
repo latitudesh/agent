@@ -161,6 +161,73 @@ To                         Action      From
 	}
 }
 
+func TestParseUFWRules_CapturesPortRange(t *testing.T) {
+	fc := NewFirewallCollector("ufw", false, logrus.New())
+
+	ufwOutput := `Status: active
+
+To                         Action      From
+--                         ------      ----
+10.4.0.0/24 1:65535/tcp    ALLOW       10.4.0.0/24
+1:65535/udp                ALLOW       172.16.0.0/13
+`
+
+	rules, err := fc.parseUFWRules(ufwOutput)
+	if err != nil {
+		t.Fatalf("parseUFWRules: %v", err)
+	}
+	if len(rules) != 2 {
+		t.Fatalf("expected 2 rules, got %d: %+v", len(rules), rules)
+	}
+	if rules[0].To != "10.4.0.0/24" || rules[0].From != "10.4.0.0/24" || rules[0].Port != "1:65535" || rules[0].Protocol != "tcp" {
+		t.Errorf("unexpected range rule with destination: %+v", rules[0])
+	}
+	if rules[1].To != "any" || rules[1].From != "172.16.0.0/13" || rules[1].Port != "1:65535" || rules[1].Protocol != "udp" {
+		t.Errorf("unexpected range rule without destination: %+v", rules[1])
+	}
+}
+
+// TestSyncDiff_StableForPortRangeRules reproduces the every-30s `ufw reload`
+// loop: the API port-range rules were never recognized in `ufw status`, so the
+// sync re-added them and reloaded on every tick, dropping in-flight packets.
+func TestSyncDiff_StableForPortRangeRules(t *testing.T) {
+	fc := NewFirewallCollector("ufw", false, logrus.New())
+
+	apiRules := []FirewallRule{
+		{From: "10.4.0.0/24", To: "10.4.0.0/24", Protocol: "tcp", Port: "1:65535"},
+		{From: "10.4.0.0/24", To: "10.4.0.0/24", Protocol: "udp", Port: "1:65535"},
+		{From: "172.16.0.0/13", To: "ANY", Protocol: "tcp", Port: "1:65535"},
+		{From: "172.16.0.0/13", To: "ANY", Protocol: "udp", Port: "1:65535"},
+	}
+
+	ufwOutput := `Status: active
+
+To                         Action      From
+--                         ------      ----
+10.4.0.0/24 1:65535/tcp    ALLOW       10.4.0.0/24
+10.4.0.0/24 1:65535/udp    ALLOW       10.4.0.0/24
+1:65535/tcp                ALLOW       172.16.0.0/13
+1:65535/udp                ALLOW       172.16.0.0/13
+`
+
+	currentRules, err := fc.parseUFWRules(ufwOutput)
+	if err != nil {
+		t.Fatalf("parseUFWRules: %v", err)
+	}
+
+	apiSet := fc.rulesToStringSet(apiRules)
+	currentSet := fc.rulesToStringSet(currentRules)
+	toAdd := fc.findRulesToAdd(currentSet, apiSet, apiRules)
+	toRemove := fc.findRulesToRemove(currentSet, apiSet, currentRules)
+
+	if len(toAdd) != 0 {
+		t.Errorf("expected no rules to add, got %d: %+v", len(toAdd), toAdd)
+	}
+	if len(toRemove) != 0 {
+		t.Errorf("expected no rules to remove, got %d: %+v", len(toRemove), toRemove)
+	}
+}
+
 func TestSyncDiff_NoCycleFromMismatchedProtocolCase(t *testing.T) {
 	fc := NewFirewallCollector("ufw", true, logrus.New())
 
