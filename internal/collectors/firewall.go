@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/netip"
 	"os"
 	"os/exec"
 	"regexp"
@@ -39,18 +40,33 @@ func (r FirewallRule) String() string {
 	return fmt.Sprintf("From: %s, To: %s, Protocol: %s, Port: %s", from, to, protocol, port)
 }
 
-// normalizeAddr normalizes a source/destination address so the diff key is
-// stable across the API and ufw status output. Empty values and the "anywhere"
-// / "any" labels collapse to "any" (matched case-insensitively, since the API
-// may send "ANY" while ufw status prints "Anywhere"), and /32 and /128 host
-// suffixes are stripped (ufw status omits them).
+// normalizeAddr canonicalizes a source/destination address the way ufw does
+// before storing a rule, so the diff key is stable across the API and ufw
+// status output. Empty values and the "anywhere" / "any" labels collapse to
+// "any" (matched case-insensitively, since the API may send "ANY" while ufw
+// status prints "Anywhere"), as do the 0.0.0.0/0 and ::/0 catch-alls. Host
+// prefixes (/32, /128) are dropped, and a CIDR with host bits set is masked to
+// its network address: the API accepts 72.46.85.137/31, but ufw stores and
+// prints 72.46.85.136/31. Without that, the same rule lands in both toAdd and
+// toRemove, and every other sync deletes it.
 func normalizeAddr(addr string) string {
 	a := strings.TrimSpace(addr)
 	if a == "" || strings.EqualFold(a, "Anywhere") || strings.EqualFold(a, "any") {
 		return "any"
 	}
-	a = strings.TrimSuffix(a, "/32")
-	a = strings.TrimSuffix(a, "/128")
+	if prefix, err := netip.ParsePrefix(a); err == nil {
+		prefix = prefix.Masked()
+		if prefix.Bits() == 0 {
+			return "any"
+		}
+		if prefix.IsSingleIP() {
+			return prefix.Addr().String()
+		}
+		return prefix.String()
+	}
+	if ip, err := netip.ParseAddr(a); err == nil {
+		return ip.String()
+	}
 	return a
 }
 
