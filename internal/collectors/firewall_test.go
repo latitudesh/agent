@@ -50,6 +50,21 @@ func TestFirewallRuleString(t *testing.T) {
 			want: "From: any, To: 203.51.16.5, Protocol: tcp, Port: 8080",
 		},
 		{
+			name: "masks host bits in source CIDR",
+			rule: FirewallRule{From: "97.245.87.168/24", Protocol: "tcp", Port: "22"},
+			want: "From: 97.245.87.0/24, To: any, Protocol: tcp, Port: 22",
+		},
+		{
+			name: "masks host bits in destination CIDR",
+			rule: FirewallRule{From: "97.245.87.168/32", To: "72.46.85.137/31", Protocol: "tcp", Port: "22"},
+			want: "From: 97.245.87.168, To: 72.46.85.136/31, Protocol: tcp, Port: 22",
+		},
+		{
+			name: "keeps IPv6 catch-all distinct from any",
+			rule: FirewallRule{From: "::/0", To: "ANY", Protocol: "tcp", Port: "22"},
+			want: "From: ::/0, To: any, Protocol: tcp, Port: 22",
+		},
+		{
 			name: "empty fields default to any",
 			rule: FirewallRule{},
 			want: "From: any, To: any, Protocol: any, Port: any",
@@ -299,6 +314,85 @@ To                         Action      From
 		if strings.Contains(joined, "allow") || strings.Contains(joined, "delete") || strings.Contains(joined, "reload") {
 			t.Errorf("expected only `ufw status`, got mutating command: %q", joined)
 		}
+	}
+}
+
+// TestSyncFirewallRules_NoCommandsForAddressesUFWNormalizes reproduces the SSH
+// rule that disappeared every other sync: ufw masks host bits (72.46.85.137/31
+// is stored as 72.46.85.136/31), so the API form never matched `ufw status`
+// and each tick deleted the live rule.
+func TestSyncFirewallRules_NoCommandsForAddressesUFWNormalizes(t *testing.T) {
+	fc := NewFirewallCollector("ufw", false, logrus.New())
+
+	status := `Status: active
+
+To                         Action      From
+--                         ------      ----
+72.46.85.136/31 22/tcp     ALLOW       97.245.87.168
+8080/tcp                   ALLOW       97.245.87.0/24
+`
+	var calls [][]string
+	fc.run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		calls = append(calls, append([]string{name}, args...))
+		if len(args) > 0 && args[len(args)-1] == "status" {
+			return []byte(status), nil
+		}
+		return nil, nil
+	}
+
+	apiJSON := `{"firewall":{"rules":[
+		{"from":"97.245.87.168/32","to":"72.46.85.137/31","protocol":"TCP","port":"22"},
+		{"from":"97.245.87.168/24","to":"ANY","protocol":"TCP","port":"8080"}
+	]}}`
+
+	if err := fc.SyncFirewallRules(context.Background(), apiJSON); err != nil {
+		t.Fatalf("SyncFirewallRules: %v", err)
+	}
+
+	for _, c := range calls {
+		joined := strings.Join(c, " ")
+		if strings.Contains(joined, "allow") || strings.Contains(joined, "delete") {
+			t.Errorf("expected only `ufw status`, got mutating command: %q", joined)
+		}
+	}
+}
+
+// TestSyncFirewallRules_RemovesAnyRuleReplacedBySingleFamilyCatchAll guards the
+// address family of catch-all rules: ufw status prints the IPv4 half of an
+// "any" rule as "Anywhere", so if ::/0 were treated as "any", replacing the
+// rule with an IPv6-only one would leave IPv4 access open.
+func TestSyncFirewallRules_RemovesAnyRuleReplacedBySingleFamilyCatchAll(t *testing.T) {
+	fc := NewFirewallCollector("ufw", false, logrus.New())
+
+	status := `Status: active
+
+To                         Action      From
+--                         ------      ----
+22/tcp                     ALLOW       Anywhere
+`
+	var calls [][]string
+	fc.run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		calls = append(calls, append([]string{name}, args...))
+		if len(args) > 0 && args[len(args)-1] == "status" {
+			return []byte(status), nil
+		}
+		return nil, nil
+	}
+
+	apiJSON := `{"firewall":{"rules":[{"from":"::/0","to":"ANY","protocol":"TCP","port":"22"}]}}`
+
+	if err := fc.SyncFirewallRules(context.Background(), apiJSON); err != nil {
+		t.Fatalf("SyncFirewallRules: %v", err)
+	}
+
+	var sawDelete bool
+	for _, c := range calls {
+		if strings.Join(c, " ") == "sudo ufw delete allow from any to any port 22 proto tcp" {
+			sawDelete = true
+		}
+	}
+	if !sawDelete {
+		t.Errorf("expected the IPv4 \"Anywhere\" rule to be deleted, calls: %v", calls)
 	}
 }
 
