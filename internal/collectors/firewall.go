@@ -44,11 +44,15 @@ func (r FirewallRule) String() string {
 // before storing a rule, so the diff key is stable across the API and ufw
 // status output. Empty values and the "anywhere" / "any" labels collapse to
 // "any" (matched case-insensitively, since the API may send "ANY" while ufw
-// status prints "Anywhere"), as do the 0.0.0.0/0 and ::/0 catch-alls. Host
-// prefixes (/32, /128) are dropped, and a CIDR with host bits set is masked to
-// its network address: the API accepts 72.46.85.137/31, but ufw stores and
-// prints 72.46.85.136/31. Without that, the same rule lands in both toAdd and
-// toRemove, and every other sync deletes it.
+// status prints "Anywhere"). Host prefixes (/32, /128) are dropped, and a CIDR
+// with host bits set is masked to its network address: the API accepts
+// 72.46.85.137/31, but ufw stores and prints 72.46.85.136/31. Without that, the
+// same rule lands in both toAdd and toRemove, and every other sync deletes it.
+//
+// A /0 prefix is deliberately not collapsed to "any": ufw status prints
+// "Anywhere" for both a dual-stack "any" rule and a single-family 0.0.0.0/0 or
+// ::/0 rule, and the parser skips the (v6) rows, so equating them could keep
+// access open in an address family the API no longer allows.
 func normalizeAddr(addr string) string {
 	a := strings.TrimSpace(addr)
 	if a == "" || strings.EqualFold(a, "Anywhere") || strings.EqualFold(a, "any") {
@@ -56,9 +60,6 @@ func normalizeAddr(addr string) string {
 	}
 	if prefix, err := netip.ParsePrefix(a); err == nil {
 		prefix = prefix.Masked()
-		if prefix.Bits() == 0 {
-			return "any"
-		}
 		if prefix.IsSingleIP() {
 			return prefix.Addr().String()
 		}
