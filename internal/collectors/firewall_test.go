@@ -596,3 +596,61 @@ To                         Action      From
 		}
 	}
 }
+
+// TestFirewallRuleString_CatchAllWithSpecificPeer checks that a /0 source or
+// destination paired with a specific address of the same family compares equal
+// to "any": ufw stores and prints both forms the same way, so the API sending
+// ::/0 to an IPv6 host must not delete and re-add the rule on every sync.
+func TestFirewallRuleString_CatchAllWithSpecificPeer(t *testing.T) {
+	cases := []struct {
+		a, b FirewallRule
+		same bool
+	}{
+		{FirewallRule{From: "::/0", To: "2001:db8::1/128", Protocol: "tcp", Port: "8080"}, FirewallRule{From: "any", To: "2001:db8::1", Protocol: "tcp", Port: "8080"}, true},
+		{FirewallRule{From: "2001:db8::/32", To: "::/0", Protocol: "tcp", Port: "443"}, FirewallRule{From: "2001:db8::/32", To: "any", Protocol: "tcp", Port: "443"}, true},
+		{FirewallRule{From: "0.0.0.0/0", To: "203.51.16.5", Protocol: "tcp", Port: "22"}, FirewallRule{From: "any", To: "203.51.16.5", Protocol: "tcp", Port: "22"}, true},
+		{FirewallRule{From: "::/0", To: "any", Protocol: "tcp", Port: "22"}, FirewallRule{From: "any", To: "any", Protocol: "tcp", Port: "22"}, false},
+		{FirewallRule{From: "::/0", To: "::/0", Protocol: "tcp", Port: "22"}, FirewallRule{From: "any", To: "any", Protocol: "tcp", Port: "22"}, false},
+		{FirewallRule{From: "::/0", To: "203.51.16.5", Protocol: "tcp", Port: "22"}, FirewallRule{From: "any", To: "203.51.16.5", Protocol: "tcp", Port: "22"}, false},
+	}
+	for _, tc := range cases {
+		if got := tc.a.String() == tc.b.String(); got != tc.same {
+			t.Errorf("%q vs %q: equal=%v, want %v", tc.a.String(), tc.b.String(), got, tc.same)
+		}
+	}
+}
+
+// TestSyncFirewallRules_NoCommandsForIPv6CatchAllToHost reproduces the API
+// sending ::/0 as the source of a rule to an IPv6 host, which ufw prints as
+// "Anywhere (v6)": the sync must treat it as in place.
+func TestSyncFirewallRules_NoCommandsForIPv6CatchAllToHost(t *testing.T) {
+	fc := NewFirewallCollector("ufw", false, logrus.New())
+
+	status := `Status: active
+
+To                         Action      From
+--                         ------      ----
+2001:db8::1 8080/tcp       ALLOW       Anywhere (v6)
+`
+	var calls [][]string
+	fc.run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		calls = append(calls, append([]string{name}, args...))
+		if len(args) > 0 && args[len(args)-1] == "status" {
+			return []byte(status), nil
+		}
+		return nil, nil
+	}
+
+	apiJSON := `{"firewall":{"rules":[{"from":"::/0","to":"2001:db8::1/128","protocol":"TCP","port":"8080"}]}}`
+
+	if err := fc.SyncFirewallRules(context.Background(), apiJSON); err != nil {
+		t.Fatalf("SyncFirewallRules: %v", err)
+	}
+
+	for _, c := range calls {
+		joined := strings.Join(c, " ")
+		if strings.Contains(joined, "allow") || strings.Contains(joined, "delete") {
+			t.Errorf("expected only `ufw status`, got mutating command: %q", joined)
+		}
+	}
+}

@@ -28,6 +28,7 @@ type FirewallRule struct {
 func (r FirewallRule) String() string {
 	from := normalizeAddr(r.From)
 	to := normalizeAddr(r.To)
+	from, to = collapseCatchAll(from, to), collapseCatchAll(to, from)
 	protocol := strings.ToLower(strings.TrimSpace(r.Protocol))
 	if protocol == "" {
 		protocol = "any"
@@ -68,6 +69,29 @@ func normalizeAddr(addr string) string {
 		return ip.String()
 	}
 	return a
+}
+
+// collapseCatchAll returns "any" for a 0.0.0.0/0 or ::/0 address when the
+// other side of the rule is a specific address of the same family. Such a rule
+// already applies to that family only, so ufw stores the catch-all as "any"
+// would be stored and prints both as "Anywhere": keeping them apart would make
+// the API form and the parsed form of one rule look like two different rules.
+func collapseCatchAll(addr, other string) string {
+	if addr != "0.0.0.0/0" && addr != "::/0" {
+		return addr
+	}
+	var o netip.Addr
+	if p, err := netip.ParsePrefix(other); err == nil && p.Bits() > 0 {
+		o = p.Addr()
+	} else if a, err := netip.ParseAddr(other); err == nil {
+		o = a
+	} else {
+		return addr
+	}
+	if (addr == "::/0") == o.Is6() {
+		return "any"
+	}
+	return addr
 }
 
 // FirewallResponse represents the API response structure
