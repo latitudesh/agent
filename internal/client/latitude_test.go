@@ -2,6 +2,8 @@ package client
 
 import (
 	"context"
+	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -147,8 +149,9 @@ func TestPingAndGetFirewallRules_StalledAPITimesOut(t *testing.T) {
 
 	select {
 	case err := <-done:
-		if err == nil {
-			t.Fatal("expected a timeout error from a stalled API, got nil")
+		var netErr net.Error
+		if !errors.As(err, &netErr) || !netErr.Timeout() {
+			t.Fatalf("expected a timeout error from a stalled API, got %v", err)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("PingAndGetFirewallRules did not return: a stalled API blocks the sync loop")
