@@ -50,8 +50,8 @@ func (r FirewallRule) String() string {
 //
 // A /0 prefix is deliberately not collapsed to "any": ufw status prints
 // "Anywhere" for both a dual-stack "any" rule and a single-family 0.0.0.0/0 or
-// ::/0 rule, and the parser skips the (v6) rows, so equating them could keep
-// access open in an address family the API no longer allows.
+// ::/0 rule, so equating them could keep access open in an address family the
+// API no longer allows. parseUFWRules tells the two apart by the "(v6)" rows.
 func normalizeAddr(addr string) string {
 	a := strings.TrimSpace(addr)
 	if a == "" || strings.EqualFold(a, "Anywhere") || strings.EqualFold(a, "any") {
@@ -148,35 +148,71 @@ func (fc *FirewallCollector) parseUFWRules(output string) ([]FirewallRule, error
 	// parse and the sync re-adds + reloads them every cycle.
 	ruleRegex := regexp.MustCompile(`^(?:(\S+)\s+)?([0-9]+(?::[0-9]+)?/[a-z]+)\s+ALLOW\s+(.+)$`)
 
+	// ufw tags a row "(v6)" only when the rule's address on that side is
+	// ::/0, so these rows are either the IPv6 half of a dual-stack "any" rule
+	// (which also has an IPv4 row) or a rule that applies to IPv6 only. Only
+	// the former can be dropped: skipping the latter means a ::/0 rule, or an
+	// "any" rule to an IPv6 destination, is never seen, so it is re-added on
+	// every sync and never removed once the API stops returning it.
+	var v6Rows []FirewallRule
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		if strings.Contains(line, "ALLOW") && !strings.Contains(line, "(v6)") {
-			matches := ruleRegex.FindStringSubmatch(line)
-			if len(matches) >= 4 {
-				to := strings.TrimSpace(matches[1])
-				portProto := matches[2]
-				from := strings.TrimSpace(matches[3])
-
-				// Parse port and protocol
-				parts := strings.Split(portProto, "/")
-				if len(parts) != 2 {
-					continue
-				}
-
-				port := parts[0]
-				protocol := parts[1]
-
-				rules = append(rules, FirewallRule{
-					From:     normalizeAddr(from),
-					To:       normalizeAddr(to),
-					Protocol: protocol,
-					Port:     port,
-				})
-			}
+		if !strings.Contains(line, "ALLOW") {
+			continue
 		}
+		v6 := strings.Contains(line, "(v6)")
+		if v6 {
+			line = strings.ReplaceAll(line, " (v6)", "")
+		}
+		matches := ruleRegex.FindStringSubmatch(line)
+		if len(matches) < 4 {
+			continue
+		}
+		to := strings.TrimSpace(matches[1])
+		portProto := matches[2]
+		from := strings.TrimSpace(matches[3])
+
+		// Parse port and protocol
+		parts := strings.Split(portProto, "/")
+		if len(parts) != 2 {
+			continue
+		}
+
+		rule := FirewallRule{
+			From:     normalizeAddr(from),
+			To:       normalizeAddr(to),
+			Protocol: parts[1],
+			Port:     parts[0],
+		}
+		if v6 {
+			v6Rows = append(v6Rows, rule)
+			continue
+		}
+		rules = append(rules, rule)
+	}
+
+	for _, rule := range v6Rows {
+		if rule.From == "any" && rule.To == "any" {
+			if containsRule(rules, rule) {
+				continue // IPv6 half of a dual-stack "any" rule
+			}
+			rule.From = "::/0"
+		}
+		rules = append(rules, rule)
 	}
 
 	return rules, nil
+}
+
+// containsRule reports whether rules holds a rule with the same address,
+// protocol and port as r.
+func containsRule(rules []FirewallRule, r FirewallRule) bool {
+	for _, c := range rules {
+		if c.String() == r.String() {
+			return true
+		}
+	}
+	return false
 }
 
 // SyncFirewallRules synchronizes UFW rules with API rules
