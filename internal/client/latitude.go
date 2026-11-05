@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/sirupsen/logrus"
 )
@@ -54,10 +55,16 @@ type FirewallRule struct {
 	Port     string `json:"port"`
 }
 
+// requestTimeout bounds every call to the Latitude.sh API. The sync loop runs
+// one cycle at a time, so a request with no deadline that stalls (a dropped
+// connection, a server that accepts but never answers) blocks every later
+// cycle: dashboard changes stop being applied and nothing is logged.
+var requestTimeout = 30 * time.Second
+
 // NewLatitudeClient creates a new Latitude.sh API client
 func NewLatitudeClient(bearerToken, apiEndpoint, projectID, firewallID, publicIP string, logger *logrus.Logger) *LatitudeClient {
 	return &LatitudeClient{
-		httpClient:  &http.Client{},
+		httpClient:  &http.Client{Timeout: requestTimeout},
 		apiEndpoint: apiEndpoint,
 		bearerToken: bearerToken,
 		projectID:   projectID,

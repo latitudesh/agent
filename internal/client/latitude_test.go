@@ -1,8 +1,12 @@
 package client
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
 )
@@ -109,5 +113,44 @@ func TestVerifyFirewallIdentity_WrongFirewallWithNoRules(t *testing.T) {
 	body := `{"status":"success","project_id":"proj_me","firewall":{"id":"fw_other","rules":[]}}`
 	if err := lc.VerifyFirewallIdentity(body); err == nil {
 		t.Fatalf("expected refusal for wrong firewall id, got nil")
+	}
+}
+
+// TestPingAndGetFirewallRules_StalledAPITimesOut guards the sync loop against
+// an API call that never completes. The agent passes a context that is only
+// cancelled on shutdown, so without a client timeout a server that accepts the
+// connection but never answers blocks the cycle, and every cycle after it.
+func TestPingAndGetFirewallRules_StalledAPITimesOut(t *testing.T) {
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	defer srv.Close()
+	defer close(release)
+
+	orig := requestTimeout
+	requestTimeout = 200 * time.Millisecond
+	defer func() { requestTimeout = orig }()
+
+	logger := logrus.New()
+	logger.SetOutput(nopWriter{})
+	lc := NewLatitudeClient("", srv.URL, "proj_me", "fw_me", "203.0.113.10", logger)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := lc.PingAndGetFirewallRules(context.Background())
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("expected a timeout error from a stalled API, got nil")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("PingAndGetFirewallRules did not return: a stalled API blocks the sync loop")
 	}
 }
