@@ -25,8 +25,12 @@ cd agent
 
 # Prebuilt packages (.deb/.rpm, amd64 and arm64) come from the apt and dnf
 # repositories: see "Installing from the package repositories" in the README.
-# Or build from source:
+# Or build from source, and copy this host's binary to ./lsh-agent for the
+# commands below:
+ARCH=$(uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')
 make build-linux   # build/lsh-agent-linux-amd64 and build/lsh-agent-linux-arm64
+cp "build/lsh-agent-linux-${ARCH}" ./lsh-agent
+# (with the package installed, use /usr/bin/lsh-agent instead of ./lsh-agent)
 ```
 
 ### Step 2: Configuration

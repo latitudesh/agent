@@ -211,14 +211,23 @@ jobs:
         with:
           name: rpm
           path: pkgs
-      # The latest published release, for the LKS-style pinned install. Releases
-      # before the first .rpm have none; the RHEL images then skip that step.
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: old-packages
+          path: old
+      # The latest published release, for the LKS-style pinned install. Until a
+      # release ships .rpm files, the RHEL images use the 0.0.1 packages built
+      # by the package job instead, so the pin and the upgrade back onto the
+      # package under test still run there.
       - name: Download the latest release packages
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p latest
           gh release download --repo "$GITHUB_REPOSITORY" --pattern '*.deb' --pattern '*.rpm' --dir latest
+          if ! compgen -G 'latest/*.rpm' > /dev/null; then
+            cp old/*.rpm latest/
+          fi
           ls latest
       # EPEL's ufw drives iptables-legacy; a real server loads these modules on
       # demand, the test container cannot.

@@ -101,7 +101,8 @@
 ## Quick Test Commands
 
 ```bash
-# Build and basic test
+# Build and basic test (ARCH: this host's architecture, amd64 or arm64)
+ARCH=$(uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')
 make build-linux
 ./build/lsh-agent-linux-${ARCH} -version
 ./build/lsh-agent-linux-${ARCH} -check-config -config configs/agent.yaml
