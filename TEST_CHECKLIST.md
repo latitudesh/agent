@@ -71,7 +71,6 @@
 - [ ] Environment variables override config file
 - [ ] UFW rule format matches shell version exactly
 - [ ] API requests match shell version format
-- [ ] File outputs (`/tmp/lsh_firewall.json`) are compatible
 
 ## Edge Cases ✅
 - [ ] Empty firewall rules from API

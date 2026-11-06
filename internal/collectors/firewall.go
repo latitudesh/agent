@@ -5,11 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/netip"
-	"os"
 	"os/exec"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/sirupsen/logrus"
 )
@@ -340,12 +338,4 @@ func (fc *FirewallCollector) GetFirewallStatus(ctx context.Context) (string, err
 		return "", fmt.Errorf("failed to get UFW status: %w", err)
 	}
 	return string(output), nil
-}
-
-// SaveRulesToFile saves firewall rules to a JSON file with timestamp
-func (fc *FirewallCollector) SaveRulesToFile(rules string, outputFile string) error {
-	// Add timestamp
-	rulesWithTimestamp := rules + fmt.Sprintf("\nLast updated: %s", time.Now().Format(time.RFC3339))
-	
-	return os.WriteFile(outputFile, []byte(rulesWithTimestamp), 0644)
 }
