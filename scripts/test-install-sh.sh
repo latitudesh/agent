@@ -136,8 +136,10 @@ fi
 
 # Wait for boot to finish before touching the system: until then there is no
 # bus to talk to, and systemd may still mount a fresh /tmp over our files.
-# Degraded is fine: some units never start in a container.
-for _ in $(seq 300); do
+# Degraded is fine: some units never start in a container. The wait covers the
+# package install before systemd starts too, retries included (up to 3 tries
+# 60s apart), so a slow distribution mirror does not read as a failed boot.
+for _ in $(seq 900); do
     if [ "$(docker inspect --format '{{.State.Running}}' "$cid")" != true ]; then
         docker logs "$cid" >&2
         echo "The container exited before systemd booted" >&2
