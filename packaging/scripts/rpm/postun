@@ -1,0 +1,22 @@
+#!/bin/sh
+# RPM %postun. $1 is the number of lsh-agent packages left: 0 on removal.
+set -e
+
+# UFW is deliberately left alone: removing the package must not reset or
+# disable the host firewall (unlike uninstall.sh, which does both).
+#
+# /etc/lsh-agent/env stays, as RPM leaves files it does not own: there is no
+# purge in RPM. uninstall.sh removes it.
+
+if [ "$1" -eq 0 ]; then
+    # Drop the compatibility link %post left for install.sh migrations.
+    if [ -L /usr/local/bin/lsh-agent ] && [ "$(readlink /usr/local/bin/lsh-agent)" = "/usr/bin/lsh-agent" ]; then
+        rm -f /usr/local/bin/lsh-agent
+    fi
+fi
+
+if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload >/dev/null 2>&1 || true
+fi
+
+exit 0

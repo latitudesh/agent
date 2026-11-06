@@ -23,7 +23,8 @@ builds:
 nfpms:
   - id: lsh-agent
     package_name: lsh-agent
-    # lsh-agent_<version>_<arch>.deb, the Debian naming convention.
+    # lsh-agent_<version>_<arch>.deb and lsh-agent-<version>-1.<arch>.rpm, each
+    # format's own naming convention.
     file_name_template: "{{ .ConventionalFileName }}"
     vendor: Latitude.sh
     homepage: https://github.com/latitudesh/agent
@@ -35,32 +36,56 @@ nfpms:
     license: GPL-3.0-only
     formats:
       - deb
+      - rpm
     bindir: /usr/bin
     section: admin
     priority: optional
-    dependencies:
-      - ufw
-      # deb-systemd-helper / deb-systemd-invoke, used by the maintainer scripts.
-      - init-system-helpers
     contents:
+      # Modes set here, not taken from the checkout (a umask of 002 would ship
+      # group-writable files owned by root).
       - src: packaging/lsh-agent.service
         dst: /usr/lib/systemd/system/lsh-agent.service
+        file_info:
+          mode: 0644
       - src: configs/agent.yaml
         dst: /etc/lsh-agent/config.yaml
         type: config|noreplace
-    scripts:
-      postinstall: packaging/scripts/postinst
-      preremove: packaging/scripts/prerm
-      postremove: packaging/scripts/postrm
+        file_info:
+          mode: 0644
+    # The same files and lifecycle in both formats; only the dependencies and
+    # the maintainer scripts differ (dpkg passes action names, RPM counts).
+    overrides:
+      deb:
+        dependencies:
+          - ufw
+          # deb-systemd-helper / deb-systemd-invoke, used by the maintainer scripts.
+          - init-system-helpers
+        scripts:
+          postinstall: packaging/scripts/postinst
+          preremove: packaging/scripts/prerm
+          postremove: packaging/scripts/postrm
+      rpm:
+        dependencies:
+          # From EPEL on the RHEL family (install.sh enables it).
+          - ufw
+          - systemd
+        scripts:
+          postinstall: packaging/scripts/rpm/post
+          preremove: packaging/scripts/rpm/preun
+          postremove: packaging/scripts/rpm/postun
+    rpm:
+      group: Applications/System
+      summary: Latitude.sh Agent
 
-# One SPDX SBOM per .deb (lsh-agent_<version>_<arch>.deb.sbom.json), uploaded
+# One SPDX SBOM per package (<package file>.sbom.json), uploaded
 # with the release. Needs syft on PATH (release.yml and ci.yml install it).
 sboms:
   - id: packages
     artifacts: package
 
 snapshot:
-  # 1.0.3-dev becomes 1.0.3~dev in the .deb, which sorts below the 1.0.3 release.
+  # 1.0.3-dev becomes 1.0.3~dev in the packages, which sorts below the 1.0.3
+  # release in both dpkg and RPM.
   version_template: "{{ incpatch .Version }}-dev"
 
 release:
