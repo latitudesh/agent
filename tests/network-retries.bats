@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# Network retries: every apt/dnf/yum/curl/git fetch in the installer, the test
+# Network retries: every apt/dnf/yum/curl fetch in the installer, the test
 # harnesses and the workflows carries the retry policy tinkerbell-packer-images
 # uses (apt Acquire::Retries=5 + 30s timeouts, dnf retries=10/timeout=30/
 # minrate=1000, curl --retry 5 --retry-delay 3 --retry-connrefused). A
@@ -49,10 +49,8 @@ lines_missing() {
   [ -z "$output" ] || { echo "$output"; false; }
 }
 
-@test "install.sh: the source build retries git clone" {
-  run grep -n -B3 -A6 'git clone' "$INSTALL_SH"
-  [[ "$output" == *"for attempt in 1 2 3"* ]]
-  [[ "$output" == *"&& break"* ]]
+@test "install.sh: no source build left (no git clone, Go download or go build)" {
+  assert_lacks_code_re "$INSTALL_SH" 'git clone|golang\.org/dl|go build|go mod'
 }
 
 @test "install_package passes the apt policy on Debian (behaviour)" {
@@ -67,9 +65,9 @@ lines_missing() {
 @test "install_package passes the dnf policy on the RHEL family (behaviour)" {
   fn="$(retry_policy)"$'\n'"$(extract_fn "$INSTALL_SH" install_package)"
   stub yum
-  run bash -c 'PATH="$1"; OS_FAMILY=rhel RPM_PM=yum; eval "$2"; install_package gcc make' _ "$(stub_path)" "$fn"
+  run bash -c 'PATH="$1"; OS_FAMILY=rhel RPM_PM=yum; eval "$2"; install_package ufw jq' _ "$(stub_path)" "$fn"
   [ "$status" -eq 0 ]
-  called "yum --setopt=retries=10 --setopt=timeout=30 --setopt=minrate=1000 install -y gcc make"
+  called "yum --setopt=retries=10 --setopt=timeout=30 --setopt=minrate=1000 install -y ufw jq"
 }
 
 # --- test harnesses and workflows -------------------------------------------

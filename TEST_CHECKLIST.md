@@ -13,7 +13,7 @@
 ## Build Testing ✅
 - [ ] `make deps` - downloads dependencies successfully
 - [ ] `make build-linux` - builds binary without errors
-- [ ] `./build/lsh-agent-linux-amd64 -version` - shows version
+- [ ] `./build/lsh-agent-linux-${ARCH} -version` - shows version (`ARCH` = amd64 or arm64)
 - [ ] `make check-config` - validates configuration
 
 ## Configuration Testing ✅
@@ -103,11 +103,11 @@
 ```bash
 # Build and basic test
 make build-linux
-./build/lsh-agent-linux-amd64 -version
-./build/lsh-agent-linux-amd64 -check-config -config configs/agent.yaml
+./build/lsh-agent-linux-${ARCH} -version
+./build/lsh-agent-linux-${ARCH} -check-config -config configs/agent.yaml
 
 # Single run test (with proper env vars)
-sudo -E ./build/lsh-agent-linux-amd64 -config /etc/lsh-agent/config.yaml
+sudo -E ./build/lsh-agent-linux-${ARCH} -config /etc/lsh-agent/config.yaml
 
 # Service test
 sudo make install create-service
