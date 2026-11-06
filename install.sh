@@ -417,6 +417,7 @@ ExecStart=/usr/local/bin/lsh-agent -config /etc/lsh-agent/config.yaml
 Restart=always
 RestartSec=10
 User=root
+PrivateTmp=true
 
 [Install]
 WantedBy=multi-user.target
