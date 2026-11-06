@@ -457,3 +457,179 @@ func TestSyncDiff_NoCycleFromMismatchedProtocolCase(t *testing.T) {
 		t.Errorf("expected stable diff with case-sensitive mode, got toAdd=%v toRemove=%v", toAdd, toRemove)
 	}
 }
+
+// TestParseUFWRules_IPv6Rows covers the rows ufw tags "(v6)": the IPv6 half of
+// a dual-stack "any" rule folds into the IPv4 row, while IPv6-only rules (a
+// ::/0 source, or an "any" source to an IPv6 destination) are kept.
+func TestParseUFWRules_IPv6Rows(t *testing.T) {
+	fc := NewFirewallCollector("ufw", false, logrus.New())
+
+	ufwOutput := `Status: active
+
+To                         Action      From
+--                         ------      ----
+22/tcp                     ALLOW       Anywhere
+443/tcp                    ALLOW       2001:db8::/32
+2001:db8::1 8080/tcp       ALLOW       Anywhere (v6)
+22/tcp (v6)                ALLOW       Anywhere (v6)
+1:65535/udp (v6)           ALLOW       Anywhere (v6)
+`
+
+	rules, err := fc.parseUFWRules(ufwOutput)
+	if err != nil {
+		t.Fatalf("parseUFWRules: %v", err)
+	}
+
+	var got []string
+	for _, r := range rules {
+		got = append(got, r.String())
+	}
+	want := []string{
+		"From: any, To: any, Protocol: tcp, Port: 22",
+		"From: 2001:db8::/32, To: any, Protocol: tcp, Port: 443",
+		"From: any, To: 2001:db8::1, Protocol: tcp, Port: 8080",
+		"From: ::/0, To: any, Protocol: udp, Port: 1:65535",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("parsed rules:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+// TestSyncFirewallRules_RemovesIPv6OnlyCatchAll reproduces a ::/0 rule that
+// stayed open after it was removed from the dashboard: ufw prints it only as a
+// "(v6)" row, which the parser skipped, so the sync never saw it to delete it.
+func TestSyncFirewallRules_RemovesIPv6OnlyCatchAll(t *testing.T) {
+	fc := NewFirewallCollector("ufw", false, logrus.New())
+
+	status := `Status: active
+
+To                         Action      From
+--                         ------      ----
+8080/tcp                   ALLOW       1.1.1.1
+22/tcp (v6)                ALLOW       Anywhere (v6)
+`
+	var calls [][]string
+	fc.run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		calls = append(calls, append([]string{name}, args...))
+		if len(args) > 0 && args[len(args)-1] == "status" {
+			return []byte(status), nil
+		}
+		return nil, nil
+	}
+
+	apiJSON := `{"firewall":{"rules":[{"from":"1.1.1.1","to":"ANY","protocol":"TCP","port":"8080"}]}}`
+
+	if err := fc.SyncFirewallRules(context.Background(), apiJSON); err != nil {
+		t.Fatalf("SyncFirewallRules: %v", err)
+	}
+
+	var sawDelete bool
+	for _, c := range calls {
+		if strings.Join(c, " ") == "sudo ufw delete allow from ::/0 to any port 22 proto tcp" {
+			sawDelete = true
+		}
+	}
+	if !sawDelete {
+		t.Errorf("expected the IPv6-only ::/0 rule to be deleted, calls: %v", calls)
+	}
+}
+
+// TestSyncFirewallRules_NoCommandsForIPv6Rules checks that IPv6-only rules and
+// dual-stack "any" rules that are already in place issue no ufw command, rather
+// than being re-added on every sync.
+func TestSyncFirewallRules_NoCommandsForIPv6Rules(t *testing.T) {
+	fc := NewFirewallCollector("ufw", false, logrus.New())
+
+	status := `Status: active
+
+To                         Action      From
+--                         ------      ----
+80/tcp                     ALLOW       Anywhere
+2001:db8::1 8080/tcp       ALLOW       Anywhere (v6)
+22/tcp (v6)                ALLOW       Anywhere (v6)
+80/tcp (v6)                ALLOW       Anywhere (v6)
+`
+	var calls [][]string
+	fc.run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		calls = append(calls, append([]string{name}, args...))
+		if len(args) > 0 && args[len(args)-1] == "status" {
+			return []byte(status), nil
+		}
+		return nil, nil
+	}
+
+	apiJSON := `{"firewall":{"rules":[
+		{"from":"ANY","to":"ANY","protocol":"TCP","port":"80"},
+		{"from":"ANY","to":"2001:db8::1/128","protocol":"TCP","port":"8080"},
+		{"from":"::/0","to":"ANY","protocol":"TCP","port":"22"}
+	]}}`
+
+	if err := fc.SyncFirewallRules(context.Background(), apiJSON); err != nil {
+		t.Fatalf("SyncFirewallRules: %v", err)
+	}
+
+	for _, c := range calls {
+		joined := strings.Join(c, " ")
+		if strings.Contains(joined, "allow") || strings.Contains(joined, "delete") {
+			t.Errorf("expected only `ufw status`, got mutating command: %q", joined)
+		}
+	}
+}
+
+// TestFirewallRuleString_CatchAllWithSpecificPeer checks that a /0 source or
+// destination paired with a specific address of the same family compares equal
+// to "any": ufw stores and prints both forms the same way, so the API sending
+// ::/0 to an IPv6 host must not delete and re-add the rule on every sync.
+func TestFirewallRuleString_CatchAllWithSpecificPeer(t *testing.T) {
+	cases := []struct {
+		a, b FirewallRule
+		same bool
+	}{
+		{FirewallRule{From: "::/0", To: "2001:db8::1/128", Protocol: "tcp", Port: "8080"}, FirewallRule{From: "any", To: "2001:db8::1", Protocol: "tcp", Port: "8080"}, true},
+		{FirewallRule{From: "2001:db8::/32", To: "::/0", Protocol: "tcp", Port: "443"}, FirewallRule{From: "2001:db8::/32", To: "any", Protocol: "tcp", Port: "443"}, true},
+		{FirewallRule{From: "0.0.0.0/0", To: "203.51.16.5", Protocol: "tcp", Port: "22"}, FirewallRule{From: "any", To: "203.51.16.5", Protocol: "tcp", Port: "22"}, true},
+		{FirewallRule{From: "::/0", To: "any", Protocol: "tcp", Port: "22"}, FirewallRule{From: "any", To: "any", Protocol: "tcp", Port: "22"}, false},
+		{FirewallRule{From: "::/0", To: "::/0", Protocol: "tcp", Port: "22"}, FirewallRule{From: "any", To: "any", Protocol: "tcp", Port: "22"}, false},
+		{FirewallRule{From: "::/0", To: "203.51.16.5", Protocol: "tcp", Port: "22"}, FirewallRule{From: "any", To: "203.51.16.5", Protocol: "tcp", Port: "22"}, false},
+	}
+	for _, tc := range cases {
+		if got := tc.a.String() == tc.b.String(); got != tc.same {
+			t.Errorf("%q vs %q: equal=%v, want %v", tc.a.String(), tc.b.String(), got, tc.same)
+		}
+	}
+}
+
+// TestSyncFirewallRules_NoCommandsForIPv6CatchAllToHost reproduces the API
+// sending ::/0 as the source of a rule to an IPv6 host, which ufw prints as
+// "Anywhere (v6)": the sync must treat it as in place.
+func TestSyncFirewallRules_NoCommandsForIPv6CatchAllToHost(t *testing.T) {
+	fc := NewFirewallCollector("ufw", false, logrus.New())
+
+	status := `Status: active
+
+To                         Action      From
+--                         ------      ----
+2001:db8::1 8080/tcp       ALLOW       Anywhere (v6)
+`
+	var calls [][]string
+	fc.run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		calls = append(calls, append([]string{name}, args...))
+		if len(args) > 0 && args[len(args)-1] == "status" {
+			return []byte(status), nil
+		}
+		return nil, nil
+	}
+
+	apiJSON := `{"firewall":{"rules":[{"from":"::/0","to":"2001:db8::1/128","protocol":"TCP","port":"8080"}]}}`
+
+	if err := fc.SyncFirewallRules(context.Background(), apiJSON); err != nil {
+		t.Fatalf("SyncFirewallRules: %v", err)
+	}
+
+	for _, c := range calls {
+		joined := strings.Join(c, " ")
+		if strings.Contains(joined, "allow") || strings.Contains(joined, "delete") {
+			t.Errorf("expected only `ufw status`, got mutating command: %q", joined)
+		}
+	}
+}
