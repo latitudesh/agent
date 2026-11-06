@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- Landing page of https://packages.lsh.io, served at / and /apt/. Links are
+<!-- Landing page of https://packages.lsh.io, served at /, /apt/ and /rpm/. Links are
      absolute so the same file works from both. scripts/build-landing-page.sh
      fills in the package list at deploy time. -->
 <html lang="en">
@@ -35,9 +35,9 @@
 </head>
 <body>
   <h1>Latitude.sh Agent packages</h1>
-  <p class="lead">apt repository for <code>lsh-agent</code>, which keeps a server's UFW firewall in sync with the
+  <p class="lead">apt and dnf repositories for <code>lsh-agent</code>, which keeps a server's UFW firewall in sync with the
     <a href="https://www.latitude.sh/docs/networking/firewall">Latitude.sh Firewall</a>.
-    Ubuntu 22.04+ and Debian 12+, on amd64 and arm64.</p>
+    Ubuntu 22.04+, Debian 12+ and the RHEL family 9+ (AlmaLinux, Rocky Linux, Oracle Linux), on amd64 and arm64.</p>
 
   <h2>Install</h2>
   <p>The dashboard gives you this command, with your IDs filled in: open your firewall, go to
@@ -48,21 +48,37 @@
     allow SSH) and starts the <code>lsh-agent</code> service. Add <code>-version &lt;version&gt;</code> to pin a release.</p>
 
   <h2>Use the repository directly</h2>
+  <p>Debian and Ubuntu:</p>
   <pre><code>sudo curl -fsSLo /etc/apt/sources.list.d/lsh-agent.sources \
   https://packages.lsh.io/apt/lsh-agent.sources
 sudo apt-get update
 sudo apt-get install -y lsh-agent</code></pre>
+  <p>RHEL family (ufw comes from EPEL):</p>
+  <pre><code>sudo dnf install -y epel-release   # Oracle Linux: oracle-epel-release-el9 / -el10
+sudo curl -fsSLo /etc/yum.repos.d/lsh-agent.repo \
+  https://packages.lsh.io/rpm/lsh-agent.repo
+sudo dnf install -y ufw lsh-agent</code></pre>
+  <p>Install <code>ufw</code> by name, as above: dnf removes packages that came in only as a dependency, so
+    removing the agent would otherwise remove the firewall too.</p>
   <p>The package does not configure the host: see
-    <a href="https://github.com/latitudesh/agent#installing-with-apt-debianubuntu">Installing with apt</a>
-    for binding it to your firewall and enabling UFW. Packages are signed with
-    <a href="/apt/lsh-agent.asc">this key</a>, which <code>lsh-agent.sources</code> already includes.</p>
+    <a href="https://github.com/latitudesh/agent#installing-from-the-package-repositories">the README</a>
+    for binding it to your firewall and enabling UFW. Both repositories are signed with
+    <a href="/apt/lsh-agent.asc">the same key</a>, which <code>lsh-agent.sources</code> and
+    <code>lsh-agent.repo</code> already reference.</p>
 
   <h2>Packages</h2>
-  <p>Every published release stays available; pin one with <code>apt-get install lsh-agent=&lt;version&gt;</code>.</p>
+  <p>Every published release stays available; pin one with <code>apt-get install lsh-agent=&lt;version&gt;</code>
+    or <code>dnf install lsh-agent-&lt;version&gt;</code>.</p>
   <table>
-    <thead><tr><th>Version</th><th>Architecture</th><th>Package</th><th>Size</th><th>SHA256</th></tr></thead>
+    <thead><tr><th>Version</th><th>Architecture</th><th>Package (.deb)</th><th>Size</th><th>SHA256</th></tr></thead>
     <tbody>
 <!-- PACKAGES -->
+    </tbody>
+  </table>
+  <table>
+    <thead><tr><th>Version</th><th>Architecture</th><th>Package (.rpm)</th><th>Size</th><th>SHA256</th></tr></thead>
+    <tbody>
+<!-- RPM_PACKAGES -->
     </tbody>
   </table>
 
@@ -70,7 +86,7 @@ sudo apt-get install -y lsh-agent</code></pre>
   <p>On a host set up with the installer:</p>
   <pre><code>curl -fsSL https://packages.lsh.io/uninstall.sh | sudo bash</code></pre>
   <p>This also resets and disables UFW. If you installed only the package, or want to keep UFW and its rules,
-    run <code>sudo apt-get purge lsh-agent</code> instead.</p>
+    run <code>sudo apt-get purge lsh-agent</code> or <code>sudo dnf remove lsh-agent</code> instead.</p>
 
   <footer>
     <a href="https://github.com/latitudesh/agent">Source</a> ·
