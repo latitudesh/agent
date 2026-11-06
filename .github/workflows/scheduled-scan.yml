@@ -30,8 +30,11 @@ jobs:
       contents: read
       issues: write # the tracking issue
     steps:
+      # Always the default branch, also when started by hand from another
+      # branch: the report and the tracking issue are about main.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -111,12 +114,15 @@ jobs:
               echo
               echo "A finding in a released binary is usually fixed by a new release built with the current Go toolchain; a finding in main needs a module bump. This issue is updated by every scan and closed by the first clean one."
             } >"$RUNNER_TEMP/body.md"
+            # opened = new issue (notified); updated = findings still there
+            # (issue refreshed, no repeat notice).
             if [ -n "$issue" ]; then
               gh issue edit "$issue" --body-file "$RUNNER_TEMP/body.md" >/dev/null
+              state=updated
             else
               issue="$(gh issue create --title "$TITLE" --body-file "$RUNNER_TEMP/body.md" | grep -oE '[0-9]+$')"
+              state=opened
             fi
-            state=open
           # Close only on a complete scan.
           elif [ -n "$issue" ] && [ "$FAILED" = "0" ]; then
             gh issue close "$issue" --comment "Clean as of $RUN_URL."
@@ -129,10 +135,11 @@ jobs:
             [ -z "$issue" ] || echo "url=$(gh issue view "$issue" --json url --jq .url)"
           } >>"$GITHUB_OUTPUT"
 
-      # Optional: skipped until the SLACK_WEBHOOK_SCAN secret exists. Never
-      # fails the job; the issue is the record.
+      # Once when the issue opens and once when it closes. Optional: skipped
+      # until the SLACK_WEBHOOK_SCAN secret exists. Never fails the job; the
+      # issue is the record.
       - name: Notify Slack
-        if: steps.issue.outputs.state == 'open' || steps.issue.outputs.state == 'closed'
+        if: steps.issue.outputs.state == 'opened' || steps.issue.outputs.state == 'closed'
         env:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_SCAN }}
           STATE: ${{ steps.issue.outputs.state }}
@@ -142,7 +149,7 @@ jobs:
             echo "SLACK_WEBHOOK_SCAN is not set, skipping the Slack notification"
             exit 0
           fi
-          if [ "$STATE" = open ]; then
+          if [ "$STATE" = opened ]; then
             text="lsh-agent weekly scan: govulncheck found vulnerabilities. Issue: $ISSUE_URL"
           else
             text="lsh-agent weekly scan: clean again, closed $ISSUE_URL"

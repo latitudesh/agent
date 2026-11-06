@@ -106,14 +106,14 @@ lsh-agent -version                             # print version and exit
 
 ## Building from source
 
-Requires Go 1.23+.
+Requires Go 1.23+, and [syft](https://github.com/anchore/syft#installation) for `make package` (it writes the SBOM next to the `.deb`).
 
 ```bash
 make build         # build ./build/lsh-agent
 make build-linux   # cross-compile for linux/amd64
 make test          # run the Go tests
 make test-shell    # Bats + ShellCheck for install.sh, uninstall.sh and the package scripts
-make package       # build the .deb into ./dist (snapshot)
+make package       # build the .deb and its SBOM into ./dist (snapshot; needs syft)
 make help          # list all targets
 ```
 
