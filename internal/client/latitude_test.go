@@ -133,13 +133,13 @@ func TestPingAndGetFirewallRules_StalledAPITimesOut(t *testing.T) {
 	defer srv.Close()
 	defer close(release)
 
-	orig := requestTimeout
-	requestTimeout = 200 * time.Millisecond
-	defer func() { requestTimeout = orig }()
-
 	logger := logrus.New()
 	logger.SetOutput(nopWriter{})
 	lc := NewLatitudeClient("", srv.URL, "proj_me", "fw_me", "203.0.113.10", logger)
+	if lc.httpClient.Timeout != requestTimeout {
+		t.Fatalf("client timeout = %v, want %v", lc.httpClient.Timeout, requestTimeout)
+	}
+	lc.httpClient.Timeout = 200 * time.Millisecond
 
 	done := make(chan error, 1)
 	go func() {

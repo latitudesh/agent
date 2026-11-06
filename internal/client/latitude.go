@@ -59,7 +59,7 @@ type FirewallRule struct {
 // one cycle at a time, so a request with no deadline that stalls (a dropped
 // connection, a server that accepts but never answers) blocks every later
 // cycle: dashboard changes stop being applied and nothing is logged.
-var requestTimeout = 30 * time.Second
+const requestTimeout = 30 * time.Second
 
 // NewLatitudeClient creates a new Latitude.sh API client
 func NewLatitudeClient(bearerToken, apiEndpoint, projectID, firewallID, publicIP string, logger *logrus.Logger) *LatitudeClient {
