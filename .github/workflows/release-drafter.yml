@@ -23,6 +23,7 @@ jobs:
   update-draft:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write
       pull-requests: read
@@ -35,11 +36,14 @@ jobs:
     # The token of a PR from a fork is read-only and cannot add labels.
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
       pull-requests: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       # The autolabeler only ever adds labels. Clear the ones it manages first,
       # so a PR retitled from feat: to fix: does not keep a stale label that
