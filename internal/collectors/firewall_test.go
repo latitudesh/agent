@@ -379,6 +379,7 @@ To                         Action      From
 		return nil, nil
 	}
 
+	fc.useSudo = false // the agent runs as root under systemd
 	apiJSON := `{"firewall":{"rules":[{"from":"::/0","to":"ANY","protocol":"TCP","port":"22"}]}}`
 
 	if err := fc.SyncFirewallRules(context.Background(), apiJSON); err != nil {
@@ -387,7 +388,7 @@ To                         Action      From
 
 	var sawDelete bool
 	for _, c := range calls {
-		if strings.Join(c, " ") == "sudo ufw delete allow from any to any port 22 proto tcp" {
+		if strings.Join(c, " ") == "ufw delete allow from any to any port 22 proto tcp" {
 			sawDelete = true
 		}
 	}
@@ -455,5 +456,24 @@ func TestSyncDiff_NoCycleFromMismatchedProtocolCase(t *testing.T) {
 
 	if len(toAdd) != 0 || len(toRemove) != 0 {
 		t.Errorf("expected stable diff with case-sensitive mode, got toAdd=%v toRemove=%v", toAdd, toRemove)
+	}
+}
+
+// TestUFWCommand_SudoOnlyWhenUnprivileged: as root (systemd) the agent calls
+// ufw directly, so the package does not need sudo; an unprivileged run (local
+// testing) still goes through sudo.
+func TestUFWCommand_SudoOnlyWhenUnprivileged(t *testing.T) {
+	fc := NewFirewallCollector("/usr/sbin/ufw", false, logrus.New())
+
+	fc.useSudo = false
+	name, args := fc.ufwCommand("status", "numbered")
+	if got := strings.Join(append([]string{name}, args...), " "); got != "/usr/sbin/ufw status numbered" {
+		t.Errorf("as root: got %q", got)
+	}
+
+	fc.useSudo = true
+	name, args = fc.ufwCommand("status", "numbered")
+	if got := strings.Join(append([]string{name}, args...), " "); got != "sudo /usr/sbin/ufw status numbered" {
+		t.Errorf("unprivileged: got %q", got)
 	}
 }
