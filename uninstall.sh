@@ -61,6 +61,18 @@ if command -v dpkg-query &> /dev/null && dpkg-query -W -f='${Status}' lsh-agent 
     rm -f /etc/apt/sources.list.d/lsh-agent.sources
 fi
 
+# The same on the RHEL family, from the dnf repository. clean_requirements_on_remove
+# off: ufw stays installed here like on Debian (it is reset below), whatever
+# pulled it in.
+if command -v rpm &> /dev/null && rpm -q lsh-agent &> /dev/null; then
+    print_colored "yellow" "Removing the lsh-agent package..."
+    if ! dnf -y --setopt=clean_requirements_on_remove=False remove lsh-agent; then
+        print_colored "red" "Error: could not remove the lsh-agent package. The agent is stopped; files and UFW were left as they are. Re-run this script once dnf is free."
+        exit 1
+    fi
+    rm -f /etc/yum.repos.d/lsh-agent.repo
+fi
+
 # Remove service file and binary
 print_colored "yellow" "Removing files..."
 rm -f /etc/systemd/system/lsh-agent.service
@@ -82,4 +94,4 @@ else
 fi
 
 print_colored "green" "Uninstallation completed successfully."
-print_colored "yellow" "Note: If you want to remove other dependencies (curl, jq, git), please do so manually."
+print_colored "yellow" "Note: If you want to remove other dependencies (curl, jq), please do so manually."

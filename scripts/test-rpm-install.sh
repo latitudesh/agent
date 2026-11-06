@@ -2,19 +2,23 @@
 # Smoke-tests the .rpm the way test-apt-install.sh tests the .deb: installs
 # lsh-agent over what install.sh used to leave behind (a source build), checks
 # the migration, keeps a changed config across a reinstall, then removes it.
+# Given a second directory with an older lsh-agent .rpm, the first install is
+# that older package and the one under test arrives as a real upgrade, which
+# must keep the admin's choice to disable the agent.
 #
 # Run as root in a disposable RHEL-family container (it rewrites system files),
 # e.g.:
 #
 #   docker run --rm -v "$PWD:/src" -w /src almalinux:10 \
-#       bash scripts/test-rpm-install.sh dist
+#       bash scripts/test-rpm-install.sh dist [dist-old]
 set -euo pipefail
 
-if [ $# -ne 1 ]; then
-    echo "Usage: $0 <rpms-dir>" >&2
+if [ $# -ne 1 ] && [ $# -ne 2 ]; then
+    echo "Usage: $0 <rpms-dir> [<older-rpms-dir>]" >&2
     exit 1
 fi
 rpms_dir=$(realpath "$1")
+old_dir=${2:+$(realpath "$2")}
 
 # install.sh's dnf policy, with an outer retry for mirror syncs.
 dnf_net=(--setopt=retries=10 --setopt=timeout=30 --setopt=minrate=1000)
@@ -44,6 +48,18 @@ if [ ${#rpms[@]} -ne 1 ]; then
     exit 1
 fi
 rpm_file=${rpms[0]}
+version=$(rpm -qp --qf '%{VERSION}' "$rpm_file")
+old_rpm=
+if [ -n "$old_dir" ]; then
+    old_rpms=("$old_dir"/lsh-agent-*."$(uname -m)".rpm)
+    if [ ${#old_rpms[@]} -ne 1 ]; then
+        echo "Expected one $(uname -m) .rpm in $old_dir, found ${#old_rpms[@]}" >&2
+        exit 1
+    fi
+    old_rpm=${old_rpms[0]}
+    old_version=$(rpm -qp --qf '%{VERSION}' "$old_rpm")
+fi
+installed_version() { rpm -q --qf '%{VERSION}' lsh-agent; }
 
 # What install.sh used to set up on the host.
 install -d /etc/systemd/system/multi-user.target.wants /etc/lsh-agent /usr/local/bin
@@ -60,7 +76,12 @@ printf 'FIREWALL_ID=fw_test\nPROJECT_ID=proj_test\n' > /etc/lsh-agent/env
 # that came in only as a dependency when the package that pulled them is
 # removed, and removing the agent must never take the host firewall with it.
 dnf_install ufw
-dnf_install "$rpm_file"
+if [ -n "$old_rpm" ]; then
+    dnf_install "$old_rpm"
+    test "$(installed_version)" = "$old_version"
+else
+    dnf_install "$rpm_file"
+fi
 
 echo "== installed"
 lsh-agent -version
@@ -74,6 +95,21 @@ test ! -e /etc/systemd/system/lsh-agent.service
 test "$(readlink /usr/local/bin/lsh-agent)" = /usr/bin/lsh-agent
 # Enabled on first install, against the packaged unit.
 test "$(readlink -f /etc/systemd/system/multi-user.target.wants/lsh-agent.service)" = /usr/lib/systemd/system/lsh-agent.service
+
+if [ -n "$old_rpm" ]; then
+    echo "== upgrade $old_version -> $version keeps the admin's disable"
+    systemctl disable lsh-agent.service
+    dnf_install "$rpm_file"
+    test "$(installed_version)" = "$version"
+    # The new binary runs (lsh-agent -version prints v<old version> otherwise).
+    if lsh-agent -version | grep -qF "v$old_version"; then
+        echo "lsh-agent is still the $old_version binary after the upgrade" >&2
+        exit 1
+    fi
+    test ! -e /etc/systemd/system/multi-user.target.wants/lsh-agent.service
+    test "$(readlink /usr/local/bin/lsh-agent)" = /usr/bin/lsh-agent
+    systemctl enable lsh-agent.service
+fi
 
 echo "== a changed config survives a reinstall"
 printf '\n# local change\n' >> /etc/lsh-agent/config.yaml
