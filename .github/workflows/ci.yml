@@ -40,7 +40,7 @@ jobs:
       - name: ShellCheck
         run: |
           shellcheck --severity=warning install.sh uninstall.sh scripts/*.sh tests/lib/*.bash
-          shellcheck --severity=warning --shell=sh packaging/scripts/*
+          shellcheck --severity=warning --shell=sh packaging/scripts/postinst packaging/scripts/prerm packaging/scripts/postrm packaging/scripts/rpm/*
           shellcheck --severity=warning --shell=bash tests/*.bats
       - name: Bats (installer and package scripts)
         run: |
@@ -81,6 +81,32 @@ jobs:
           name: deb
           path: dist/*.deb
           if-no-files-found: error
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rpm
+          path: dist/*.rpm
+          if-no-files-found: error
+      # The same packages as an older version (0.0.1), so the install jobs can
+      # test a real upgrade onto the packages above.
+      - name: Write the config for the older packages
+        run: |
+          {
+            echo 'dist: dist-old'
+            sed 's/^  version_template: .*/  version_template: "0.0.1"/' .goreleaser.yaml
+          } > "$RUNNER_TEMP/goreleaser-old.yaml"
+          grep -q 'version_template: "0.0.1"' "$RUNNER_TEMP/goreleaser-old.yaml"
+      - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --snapshot --clean --skip=sbom --config ${{ runner.temp }}/goreleaser-old.yaml
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: old-packages
+          path: |
+            dist-old/*.deb
+            dist-old/*.rpm
+          if-no-files-found: error
 
   # Install the package from a signed apt repository on every supported release,
   # natively on both architectures.
@@ -110,6 +136,42 @@ jobs:
           name: deb
           path: debs
       - run: bash scripts/test-apt-install.sh debs
+
+  # The .rpm on every supported RHEL-family release, natively on both
+  # architectures, with ufw from EPEL: migration from a source-built install,
+  # a real upgrade from an older package (keeping the admin's disable), config
+  # kept across a reinstall, removal that leaves the firewall alone.
+  install-rpm:
+    needs: package
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+          - amd64
+          - arm64
+        image:
+          - almalinux:9
+          - almalinux:10
+          - rockylinux/rockylinux:9
+          - rockylinux/rockylinux:10
+          - oraclelinux:9
+          - oraclelinux:10
+    container: ${{ matrix.image }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: rpm
+          path: rpms
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: old-packages
+          path: old
+      - run: bash scripts/test-rpm-install.sh rpms old
 
   # install.sh end to end, the way the dashboard runs it: a systemd host where
   # it sets up UFW and replaces an agent built by the previous installer.
