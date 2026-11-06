@@ -155,11 +155,6 @@ func runCollection(ctx context.Context, latitudeClient *client.LatitudeClient, f
 		}
 	}
 
-	// Save rules to file
-	if err := firewallCollector.SaveRulesToFile(rulesJSON, cfg.Firewall.OutputFile); err != nil {
-		log.WithError(err).Warn("Failed to save rules to file")
-	}
-
 	// Synchronize firewall rules if firewall collector is enabled
 	if firewallCollector != nil {
 		collectorStart := time.Now()

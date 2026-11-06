@@ -29,10 +29,6 @@ firewall:
   ufw_binary: "/usr/sbin/ufw"
   # Case sensitive rule matching (recommended: false)
   case_sensitive: false
-  # Temporary file for API responses
-  temp_file: "/tmp/lsh_firewall_temp.json"
-  # Output file for processed rules
-  output_file: "/tmp/lsh_firewall.json"
 
 # Logging configuration
 logging:
