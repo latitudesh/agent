@@ -93,11 +93,14 @@ jobs:
           # Each Pages deploy replaces the whole site, so rebuild from every
           # published release: installs pinned to an older version (LKS pins
           # the agent per node pool) must keep resolving.
-          mkdir -p debs
+          # Releases before the first .rpm only have .deb files.
+          mkdir -p debs rpms
           gh api --paginate "repos/${GITHUB_REPOSITORY}/releases" \
-            --jq '.[] | select((.draft or .prerelease) | not) | .assets[] | select(.name | endswith(".deb")) | .browser_download_url' |
+            --jq '.[] | select((.draft or .prerelease) | not) | .assets[] | select(.name | endswith(".deb") or endswith(".rpm")) | .browser_download_url' |
             while read -r url; do
-              curl -fsSL --retry 5 --retry-delay 3 --retry-connrefused -o "debs/${url##*/}" "$url"
+              dir=debs
+              [[ $url == *.rpm ]] && dir=rpms
+              curl -fsSL --retry 5 --retry-delay 3 --retry-connrefused -o "$dir/${url##*/}" "$url"
             done
 
       # APT_SIGNING_KEY is a secret of the github-pages environment, not of the
@@ -110,14 +113,26 @@ jobs:
 
       - name: Build the Pages site
         run: |
-          command -v apt-ftparchive > /dev/null || sudo apt-get -o Acquire::Retries=5 -o Acquire::Retries::Delay=true -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y --no-install-recommends apt-utils
+          net=(-o Acquire::Retries=5 -o Acquire::Retries::Delay=true -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
+          sudo apt-get "${net[@]}" update
+          sudo apt-get "${net[@]}" install -y --no-install-recommends apt-utils createrepo-c
           scripts/build-apt-repo.sh debs site/apt
+          # The dnf repository, signed with the same key. Skipped (and left out
+          # of the landing page) until a release ships .rpm files.
+          rpm_site=()
+          if compgen -G 'rpms/*.rpm' > /dev/null; then
+            scripts/build-rpm-repo.sh rpms site/rpm
+            rpm_site=(site/rpm)
+          fi
           # Serve the installers from the same release, next to the repository
           # they install from.
           cp install.sh uninstall.sh site/
-          # Pages lists no directories: without a page, / and /apt/ are a 404.
-          scripts/build-landing-page.sh site/apt packaging/site/index.html site/index.html
+          # Pages lists no directories: without a page, /, /apt/ and /rpm/ are a 404.
+          scripts/build-landing-page.sh site/apt packaging/site/index.html site/index.html "${rpm_site[@]}"
           cp site/index.html site/apt/index.html
+          if [ ${#rpm_site[@]} -gt 0 ]; then
+            cp site/index.html site/rpm/index.html
+          fi
 
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
