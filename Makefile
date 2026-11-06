@@ -25,12 +25,13 @@ build:
 	@mkdir -p $(BUILD_DIR)
 	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) $(BINARY_PATH)
 
-# Build for Linux (common deployment target)
+# Build for Linux, both supported architectures
 .PHONY: build-linux
 build-linux:
-	@echo "Building $(BINARY_NAME) for Linux..."
+	@echo "Building $(BINARY_NAME) for Linux (amd64, arm64)..."
 	@mkdir -p $(BUILD_DIR)
 	GOOS=linux GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-amd64 $(BINARY_PATH)
+	GOOS=linux GOARCH=arm64 $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-arm64 $(BINARY_PATH)
 
 # Clean build artifacts
 .PHONY: clean
@@ -137,12 +138,12 @@ dev-run: build
 help:
 	@echo "Available targets:"
 	@echo "  build         - Build the binary"
-	@echo "  build-linux   - Build for Linux x86_64"
+	@echo "  build-linux   - Build for Linux amd64 and arm64"
 	@echo "  clean         - Clean build artifacts"
 	@echo "  deps          - Download and tidy dependencies"
 	@echo "  test          - Run the Go tests"
 	@echo "  test-shell    - Bats + ShellCheck for the installer and package scripts (as CI)"
-	@echo "  package       - Build the .deb package into ./dist (snapshot)"
+	@echo "  package       - Build the .deb and .rpm packages into ./dist (snapshot)"
 	@echo "  check-config  - Validate configuration file"
 	@echo "  install       - Install binary to /usr/local/bin"
 	@echo "  uninstall     - Remove binary from /usr/local/bin"

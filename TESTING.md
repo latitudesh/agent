@@ -20,16 +20,17 @@
 
 ### Step 1: Download and Setup
 ```bash
-# Clone the feat/go branch
-git clone -b feat/go https://github.com/latitudesh/agent.git
+git clone https://github.com/latitudesh/agent.git
 cd agent
 
-# Download pre-built binary (when available)
-curl -L -o lsh-agent https://github.com/latitudesh/agent/releases/latest/download/lsh-agent-linux-amd64
-chmod +x lsh-agent
-
-# Or build from source
-make build-linux
+# Prebuilt packages (.deb/.rpm, amd64 and arm64) come from the apt and dnf
+# repositories: see "Installing from the package repositories" in the README.
+# Or build from source, and copy this host's binary to ./lsh-agent for the
+# commands below:
+ARCH=$(uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')
+make build-linux   # build/lsh-agent-linux-amd64 and build/lsh-agent-linux-arm64
+cp "build/lsh-agent-linux-${ARCH}" ./lsh-agent
+# (with the package installed, use /usr/bin/lsh-agent instead of ./lsh-agent)
 ```
 
 ### Step 2: Configuration
@@ -82,16 +83,17 @@ This should:
 
 ### Step 1: Install Go
 ```bash
-# Install Go 1.22+
-wget https://golang.org/dl/go1.22.0.linux-amd64.tar.gz
-sudo tar -C /usr/local -xzf go1.22.0.linux-amd64.tar.gz
+# Install Go 1.23+ for this host's architecture
+ARCH=$(uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')
+wget "https://go.dev/dl/go1.23.4.linux-${ARCH}.tar.gz"
+sudo tar -C /usr/local -xzf "go1.23.4.linux-${ARCH}.tar.gz"
 export PATH=$PATH:/usr/local/go/bin
 ```
 
 ### Step 2: Build and Test
 ```bash
 # Clone and build
-git clone -b feat/go https://github.com/latitudesh/agent.git
+git clone https://github.com/latitudesh/agent.git
 cd agent
 
 # Download dependencies and build
@@ -99,7 +101,7 @@ make deps
 make build-linux
 
 # Test the binary
-./build/lsh-agent-linux-amd64 -version
+./build/lsh-agent-linux-${ARCH} -version
 ```
 
 ## Testing Scenarios
