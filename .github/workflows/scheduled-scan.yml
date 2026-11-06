@@ -148,7 +148,7 @@ jobs:
             text="lsh-agent weekly scan: clean again, closed $ISSUE_URL"
           fi
           jq -n --arg text "$text" '{text: $text}' |
-            curl -fsS -X POST -H 'Content-Type: application/json' --data @- "$SLACK_WEBHOOK" >/dev/null ||
+            curl -fsS --retry 5 --retry-delay 3 --retry-connrefused -X POST -H 'Content-Type: application/json' --data @- "$SLACK_WEBHOOK" >/dev/null ||
             echo "::warning::Slack notification failed"
 
       - name: Fail if a scan could not run
