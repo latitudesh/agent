@@ -4,6 +4,8 @@
 # and the <!-- RPM_PACKAGES --> line (dnf). The apt rows come from the Packages
 # indexes the repository serves, the dnf rows from the packages/ directory
 # createrepo_c indexed, so the page lists exactly what apt and dnf can install.
+# The dnf setup and table sit between <!-- RPM_START --> and <!-- RPM_END -->
+# and are dropped when there is no dnf repository yet.
 #
 #   scripts/build-landing-page.sh <apt-repo-dir> <template> <output> [<rpm-repo-dir>]
 set -euo pipefail
@@ -70,7 +72,17 @@ if [ -n "$rpm_dir" ]; then
     fi
 fi
 
-sed -e "/<!-- PACKAGES -->/{
+# Without a dnf repository (releases before the first .rpm) the dnf setup and
+# the .rpm table are left out: their URLs would not exist yet. With one, only
+# the markers go.
+# The NO_RPM blocks are the text to show instead until then.
+if [ -n "$rpm_dir" ]; then
+    rpm_sections=(-e '/<!-- NO_RPM_START -->/,/<!-- NO_RPM_END -->/d' -e '/<!-- RPM_START -->/d' -e '/<!-- RPM_END -->/d')
+else
+    rpm_sections=(-e '/<!-- RPM_START -->/,/<!-- RPM_END -->/d' -e '/<!-- NO_RPM_START -->/d' -e '/<!-- NO_RPM_END -->/d')
+fi
+
+sed "${rpm_sections[@]}" -e "/<!-- PACKAGES -->/{
 r $rows
 d
 }" -e "/<!-- RPM_PACKAGES -->/{

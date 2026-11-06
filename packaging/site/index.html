@@ -35,9 +35,15 @@
 </head>
 <body>
   <h1>Latitude.sh Agent packages</h1>
-  <p class="lead">apt and dnf repositories for <code>lsh-agent</code>, which keeps a server's UFW firewall in sync with the
+  <p class="lead">Package repositories for <code>lsh-agent</code>, which keeps a server's UFW firewall in sync with the
     <a href="https://www.latitude.sh/docs/networking/firewall">Latitude.sh Firewall</a>.
-    Ubuntu 22.04+, Debian 12+ and the RHEL family 9+ (AlmaLinux, Rocky Linux, Oracle Linux), on amd64 and arm64.</p>
+  <!-- RPM_START -->
+    Ubuntu 22.04+ and Debian 12+ (apt), and the RHEL family 9+: AlmaLinux, Rocky Linux and Oracle Linux (dnf),
+    on amd64 and arm64.</p>
+  <!-- RPM_END -->
+  <!-- NO_RPM_START -->
+    Ubuntu 22.04+ and Debian 12+, on amd64 and arm64.</p>
+  <!-- NO_RPM_END -->
 
   <h2>Install</h2>
   <p>The dashboard gives you this command, with your IDs filled in: open your firewall, go to
@@ -53,6 +59,7 @@
   https://packages.lsh.io/apt/lsh-agent.sources
 sudo apt-get update
 sudo apt-get install -y lsh-agent</code></pre>
+  <!-- RPM_START -->
   <p>RHEL family (ufw comes from EPEL):</p>
   <pre><code>sudo dnf install -y epel-release   # Oracle Linux: oracle-epel-release-el9 / -el10
 sudo curl -fsSLo /etc/yum.repos.d/lsh-agent.repo \
@@ -60,11 +67,11 @@ sudo curl -fsSLo /etc/yum.repos.d/lsh-agent.repo \
 sudo dnf install -y ufw lsh-agent</code></pre>
   <p>Install <code>ufw</code> by name, as above: dnf removes packages that came in only as a dependency, so
     removing the agent would otherwise remove the firewall too.</p>
+  <!-- RPM_END -->
   <p>The package does not configure the host: see
     <a href="https://github.com/latitudesh/agent#installing-from-the-package-repositories">the README</a>
-    for binding it to your firewall and enabling UFW. Both repositories are signed with
-    <a href="/apt/lsh-agent.asc">the same key</a>, which <code>lsh-agent.sources</code> and
-    <code>lsh-agent.repo</code> already reference.</p>
+    for binding it to your firewall and enabling UFW. The repository metadata is signed with
+    <a href="/apt/lsh-agent.asc">this key</a>, which the repository file already references.</p>
 
   <h2>Packages</h2>
   <p>Every published release stays available; pin one with <code>apt-get install lsh-agent=&lt;version&gt;</code>
@@ -75,12 +82,14 @@ sudo dnf install -y ufw lsh-agent</code></pre>
 <!-- PACKAGES -->
     </tbody>
   </table>
+  <!-- RPM_START -->
   <table>
     <thead><tr><th>Version</th><th>Architecture</th><th>Package (.rpm)</th><th>Size</th><th>SHA256</th></tr></thead>
     <tbody>
 <!-- RPM_PACKAGES -->
     </tbody>
   </table>
+  <!-- RPM_END -->
 
   <h2>Uninstall</h2>
   <p>On a host set up with the installer:</p>

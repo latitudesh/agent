@@ -62,7 +62,7 @@ sudo dnf install -y ufw lsh-agent             # or lsh-agent-<version> to pin on
 
 Install `ufw` by name, as above: dnf removes packages that came in only as a dependency, so `dnf remove lsh-agent` would otherwise remove the firewall too. The dnf repository verifies the signed metadata (`repo_gpgcheck=1`), which pins the checksum of every package, the same model as the apt repository.
 
-Both packages install the binary, the `lsh-agent` systemd unit and the default configuration, and restart the agent on every upgrade. It does not configure the host: the service stays inactive until `/etc/lsh-agent/env` exists, and UFW is left as it is. To finish the setup:
+Both packages install the binary, the `lsh-agent` systemd unit and the default configuration, and restart the agent on every upgrade. They do not configure the host: the service stays inactive until `/etc/lsh-agent/env` exists, and UFW is left as it is. To finish the setup:
 
 ```bash
 # Bind the agent to your firewall and project
@@ -78,6 +78,15 @@ sudo ufw allow ssh
 sudo ufw --force enable
 
 sudo systemctl restart lsh-agent
+```
+
+On the RHEL family, hand the firewall over from `firewalld` to UFW instead of the plain `ufw --force enable` above, as `install.sh` does: `firewalld` and UFW would both drive netfilter, and EPEL's `ufw enable` does not enable `ufw.service`, so the rules would not come back after a reboot.
+
+```bash
+sudo systemctl disable --now firewalld
+# If this fails, bring firewalld back before going further: sudo systemctl enable --now firewalld
+sudo ufw --force enable
+sudo systemctl enable ufw
 ```
 
 Hosts previously set up with `install.sh` are migrated when the package is installed: the service switches to the packaged binary, and `/usr/local/bin/lsh-agent` becomes a link to it.

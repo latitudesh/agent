@@ -41,11 +41,24 @@ PKG
   [ "$first" -lt "$older" ]
 }
 
-@test "without an rpm repository the page still renders (releases before the first .rpm)" {
+@test "without an rpm repository the dnf setup and table are left out (releases before the first .rpm)" {
   run bash "$REPO_ROOT/scripts/build-landing-page.sh" "$APT" "$TEMPLATE" "$OUT"
   [ "$status" -eq 0 ]
   run ! grep -q 'PACKAGES -->' "$OUT"
+  run ! grep -q '/rpm/lsh-agent.repo' "$OUT"
   run ! grep -q '/rpm/packages/' "$OUT"
+  run ! grep -q 'Package (.rpm)' "$OUT"
+  run ! grep -q 'RPM_' "$OUT"
+  grep -q '/apt/lsh-agent.sources' "$OUT"
+  grep -q 'Ubuntu 22.04+ and Debian 12+, on amd64 and arm64.</p>' "$OUT"
+}
+
+@test "with an rpm repository the dnf setup is shown and no marker is left" {
+  bash "$REPO_ROOT/scripts/build-landing-page.sh" "$APT" "$TEMPLATE" "$OUT" "$RPM"
+  grep -q 'https://packages.lsh.io/rpm/lsh-agent.repo' "$OUT"
+  grep -q 'Package (.rpm)' "$OUT"
+  grep -q 'Rocky Linux and Oracle Linux (dnf)' "$OUT"
+  run ! grep -q 'RPM_' "$OUT"
 }
 
 @test "an rpm repository with no packages is an error" {
