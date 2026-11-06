@@ -106,14 +106,14 @@ lsh-agent -version                             # print version and exit
 
 ## Building from source
 
-Requires Go 1.23+.
+Requires Go 1.23+, and [syft](https://github.com/anchore/syft#installation) for `make package` (it writes the SBOM next to the `.deb`).
 
 ```bash
 make build         # build ./build/lsh-agent
 make build-linux   # cross-compile for linux/amd64
 make test          # run the Go tests
 make test-shell    # Bats + ShellCheck for install.sh, uninstall.sh and the package scripts
-make package       # build the .deb into ./dist (snapshot)
+make package       # build the .deb and its SBOM into ./dist (snapshot; needs syft)
 make help          # list all targets
 ```
 
@@ -133,6 +133,16 @@ The workflow needs:
 - a tag ruleset restricting who can create `v*` tags, since pushing one publishes a release.
 
 To redeploy the repository without a release (e.g. after rotating the key), run the `release` workflow manually from `main`.
+
+### Verifying a release
+
+Each `.deb` ships with an SPDX SBOM (`<package>.deb.sbom.json`) and a signed build provenance attestation, both produced by the `release` workflow. To check that a package was built from this repository by that workflow:
+
+```bash
+gh attestation verify lsh-agent_<version>_amd64.deb -R latitudesh/agent
+```
+
+A weekly workflow (`scheduled-scan`) runs govulncheck on `main` and on the binaries of the latest release, and keeps one tracking issue open while it finds something.
 
 ## Uninstalling
 
