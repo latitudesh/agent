@@ -134,6 +134,16 @@ The workflow needs:
 
 To redeploy the repository without a release (e.g. after rotating the key), run the `release` workflow manually from `main`.
 
+### Verifying a release
+
+Each `.deb` ships with an SPDX SBOM (`<package>.deb.sbom.json`) and a signed build provenance attestation, both produced by the `release` workflow. To check that a package was built from this repository by that workflow:
+
+```bash
+gh attestation verify lsh-agent_<version>_amd64.deb -R latitudesh/agent
+```
+
+A weekly workflow (`scheduled-scan`) runs govulncheck on `main` and on the binaries of the latest release, and keeps one tracking issue open while it finds something.
+
 ## Uninstalling
 
 ```bash
