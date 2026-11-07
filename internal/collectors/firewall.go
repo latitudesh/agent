@@ -110,6 +110,59 @@ func execRunner(ctx context.Context, name string, args ...string) ([]byte, error
 	return exec.CommandContext(ctx, name, args...).CombinedOutput()
 }
 
+// ipv6Mode is whether ufw manages IPv6 rules on this host.
+type ipv6Mode int
+
+const (
+	// ipv6Unknown means the ufw settings could not be read. The sync then
+	// compares catch-all addresses literally, as it did before it knew about
+	// the host's IPv6 setting.
+	ipv6Unknown ipv6Mode = iota
+	ipv6Off
+	ipv6On
+)
+
+func (m ipv6Mode) String() string {
+	switch m {
+	case ipv6On:
+		return "yes"
+	case ipv6Off:
+		return "no"
+	}
+	return "unknown"
+}
+
+// ufwDefaultsLine matches a setting the way ufw reads /etc/default/ufw
+// (_get_defaults in backend.py): KEY=value at the start of the line, with
+// optional double quotes around the value.
+var ufwDefaultsLine = regexp.MustCompile(`^(\w+)="?([\w-]+)"?`)
+
+// readIPv6Mode reports whether ufw manages IPv6 on this host. It mirrors
+// use_ipv6 in ufw's backend.py: IPV6 must be "yes" in the defaults file and the
+// kernel must have IPv6 (procPath exists). A missing IPV6 key means "no", as it
+// does for ufw; an unreadable defaults file means the setting is unknown.
+func readIPv6Mode(defaultsPath, procPath string) ipv6Mode {
+	data, err := os.ReadFile(defaultsPath)
+	if err != nil {
+		return ipv6Unknown
+	}
+
+	value := ""
+	for _, line := range strings.Split(string(data), "\n") {
+		m := ufwDefaultsLine.FindStringSubmatch(strings.TrimRight(line, "\r"))
+		if m != nil && strings.EqualFold(m[1], "IPV6") {
+			value = strings.ToLower(m[2])
+		}
+	}
+	if value != "yes" {
+		return ipv6Off
+	}
+	if _, err := os.Stat(procPath); err != nil {
+		return ipv6Off
+	}
+	return ipv6On
+}
+
 // FirewallCollector handles firewall rule collection and synchronization
 type FirewallCollector struct {
 	ufwBinary     string
@@ -120,16 +173,24 @@ type FirewallCollector struct {
 	// by an unprivileged user (local testing); under systemd it runs as root
 	// and calls ufw directly, so hosts without sudo work too.
 	useSudo bool
+
+	// ufwDefaultsPath and procIPv6Path tell readIPv6Mode where to look; tests
+	// point them at fixtures. ipv6 holds the result for the current sync.
+	ufwDefaultsPath string
+	procIPv6Path    string
+	ipv6            ipv6Mode
 }
 
 // NewFirewallCollector creates a new firewall collector
 func NewFirewallCollector(ufwBinary string, caseSensitive bool, logger *logrus.Logger) *FirewallCollector {
 	return &FirewallCollector{
-		ufwBinary:     ufwBinary,
-		caseSensitive: caseSensitive,
-		logger:        logger,
-		run:           execRunner,
-		useSudo:       os.Geteuid() != 0,
+		ufwBinary:       ufwBinary,
+		caseSensitive:   caseSensitive,
+		logger:          logger,
+		run:             execRunner,
+		ufwDefaultsPath: "/etc/default/ufw",
+		procIPv6Path:    "/proc/sys/net/ipv6",
+		useSudo:         os.Geteuid() != 0,
 	}
 }
 
@@ -215,6 +276,13 @@ func (fc *FirewallCollector) parseUFWRules(output string) ([]FirewallRule, error
 		rules = append(rules, rule)
 	}
 
+	// With IPv6 on, ufw prints a "(v6)" row for the IPv6 half of every
+	// dual-stack "any" rule, so an "Anywhere" row with no "(v6)" partner is an
+	// IPv4-only 0.0.0.0/0 rule. Reading it as "any" made a 0.0.0.0/0 rule from
+	// the API look missing on one sync and obsolete on the next, so the port
+	// was closed every other cycle. With IPv6 off there are no "(v6)" rows and
+	// "any" already means IPv4 only (see ruleParts).
+	v4Rows := len(rules)
 	for _, rule := range v6Rows {
 		if rule.From == "any" && rule.To == "any" {
 			if containsRule(rules, rule) {
@@ -223,6 +291,14 @@ func (fc *FirewallCollector) parseUFWRules(output string) ([]FirewallRule, error
 			rule.From = "::/0"
 		}
 		rules = append(rules, rule)
+	}
+	if fc.ipv6 == ipv6On {
+		for i := range rules[:v4Rows] {
+			r := rules[i]
+			if r.From == "any" && r.To == "any" && !containsRule(v6Rows, r) {
+				rules[i].From = "0.0.0.0/0"
+			}
+		}
 	}
 
 	return rules, nil
@@ -251,6 +327,9 @@ func (fc *FirewallCollector) SyncFirewallRules(ctx context.Context, apiRulesJSON
 
 	apiRules := response.Firewall.Rules
 	fc.logger.Infof("Found %d API rules", len(apiRules))
+
+	fc.ipv6 = readIPv6Mode(fc.ufwDefaultsPath, fc.procIPv6Path)
+	fc.logger.Debugf("ufw IPv6: %s", fc.ipv6)
 
 	// Get current UFW rules
 	currentRules, err := fc.GetCurrentUFWRules(ctx)
@@ -313,44 +392,98 @@ func (fc *FirewallCollector) SyncFirewallRules(ctx context.Context, apiRulesJSON
 	return nil
 }
 
+// ruleKey returns the diff key of a rule.
+func (fc *FirewallCollector) ruleKey(rule FirewallRule) string {
+	key := rule.String()
+	if !fc.caseSensitive {
+		key = strings.ToLower(key)
+	}
+	return key
+}
+
+// ruleParts splits a catch-all rule (every address any, 0.0.0.0/0 or ::/0)
+// into the per-family rules ufw actually stores for it on this host: "any" is
+// an IPv4 and an IPv6 rule when ufw manages IPv6, and only an IPv4 rule when it
+// does not. Comparing the parts lets the sync see that 0.0.0.0/0 and "any" are
+// the same rule on an IPv6=no host, and repair or trim one family of a
+// dual-stack rule without deleting the other. Other rules are returned as is,
+// and so is everything when the host's IPv6 setting is unknown.
+func (fc *FirewallCollector) ruleParts(rule FirewallRule) []FirewallRule {
+	if fc.ipv6 == ipv6Unknown {
+		return []FirewallRule{rule}
+	}
+	v4, v6 := true, fc.ipv6 == ipv6On
+	for _, addr := range []string{normalizeAddr(rule.From), normalizeAddr(rule.To)} {
+		switch addr {
+		case "any":
+		case "0.0.0.0/0":
+			v6 = false
+		case "::/0":
+			v4 = false
+		default:
+			return []FirewallRule{rule}
+		}
+	}
+	var parts []FirewallRule
+	if v4 {
+		parts = append(parts, FirewallRule{From: "0.0.0.0/0", To: "any", Protocol: rule.Protocol, Port: rule.Port})
+	}
+	if v6 {
+		parts = append(parts, FirewallRule{From: "::/0", To: "any", Protocol: rule.Protocol, Port: rule.Port})
+	}
+	if len(parts) == 0 {
+		return []FirewallRule{rule}
+	}
+	return parts
+}
+
 // rulesToStringSet converts rules to a set of normalized strings
 func (fc *FirewallCollector) rulesToStringSet(rules []FirewallRule) map[string]FirewallRule {
 	ruleSet := make(map[string]FirewallRule)
 	for _, rule := range rules {
-		key := rule.String()
-		if !fc.caseSensitive {
-			key = strings.ToLower(key)
+		for _, part := range fc.ruleParts(rule) {
+			ruleSet[fc.ruleKey(part)] = rule
 		}
-		ruleSet[key] = rule
 	}
 	return ruleSet
 }
 
-// findRulesToAdd finds rules that exist in API but not in current UFW
+// findRulesToAdd finds rules that exist in API but not in current UFW. A
+// dual-stack rule missing only one family is added again as is: ufw skips the
+// family it already has and adds the other.
 func (fc *FirewallCollector) findRulesToAdd(currentSet, apiSet map[string]FirewallRule, apiRules []FirewallRule) []FirewallRule {
 	var rulesToAdd []FirewallRule
 	for _, rule := range apiRules {
-		key := rule.String()
-		if !fc.caseSensitive {
-			key = strings.ToLower(key)
-		}
-		if _, exists := currentSet[key]; !exists {
-			rulesToAdd = append(rulesToAdd, rule)
+		for _, part := range fc.ruleParts(rule) {
+			if _, exists := currentSet[fc.ruleKey(part)]; !exists {
+				rulesToAdd = append(rulesToAdd, rule)
+				break
+			}
 		}
 	}
 	return rulesToAdd
 }
 
-// findRulesToRemove finds rules that exist in current UFW but not in API
+// findRulesToRemove finds rules that exist in current UFW but not in API. When
+// the API still allows one family of a dual-stack rule, only the other family
+// is removed (ufw deletes just the IPv6 half for "from ::/0"), so the port is
+// never closed for the family that should stay open.
 func (fc *FirewallCollector) findRulesToRemove(currentSet, apiSet map[string]FirewallRule, currentRules []FirewallRule) []FirewallRule {
 	var rulesToRemove []FirewallRule
 	for _, rule := range currentRules {
-		key := rule.String()
-		if !fc.caseSensitive {
-			key = strings.ToLower(key)
+		parts := fc.ruleParts(rule)
+		var missing []FirewallRule
+		for _, part := range parts {
+			if _, exists := apiSet[fc.ruleKey(part)]; !exists {
+				missing = append(missing, part)
+			}
 		}
-		if _, exists := apiSet[key]; !exists {
+		switch {
+		case len(missing) == 0:
+		case len(missing) == len(parts):
 			rulesToRemove = append(rulesToRemove, rule)
+		default:
+			rulesToRemove = append(rulesToRemove, missing...)
 		}
 	}
 	return rulesToRemove

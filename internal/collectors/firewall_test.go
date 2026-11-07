@@ -4,8 +4,6 @@ import (
 	"context"
 	"strings"
 	"testing"
-
-	"github.com/sirupsen/logrus"
 )
 
 func TestFirewallRuleString(t *testing.T) {
@@ -82,7 +80,7 @@ func TestFirewallRuleString(t *testing.T) {
 }
 
 func TestSyncDiff_StableForCIDRHostRules(t *testing.T) {
-	fc := NewFirewallCollector("ufw", false, logrus.New())
+	fc := newTestCollector(t, false, "")
 
 	apiRules := []FirewallRule{
 		{From: "8.8.8.8/32", Protocol: "TCP", Port: "8081"},
@@ -118,7 +116,7 @@ To                         Action      From
 }
 
 func TestParseUFWRules_CapturesDestination(t *testing.T) {
-	fc := NewFirewallCollector("ufw", false, logrus.New())
+	fc := newTestCollector(t, false, "")
 
 	ufwOutput := `Status: active
 
@@ -145,7 +143,7 @@ To                         Action      From
 }
 
 func TestSyncDiff_StableForDestinationRules(t *testing.T) {
-	fc := NewFirewallCollector("ufw", false, logrus.New())
+	fc := newTestCollector(t, false, "")
 
 	apiRules := []FirewallRule{
 		{From: "8.8.8.8", To: "203.51.16.0/24", Protocol: "TCP", Port: "8081"},
@@ -179,7 +177,7 @@ To                         Action      From
 }
 
 func TestParseUFWRules_CapturesPortRange(t *testing.T) {
-	fc := NewFirewallCollector("ufw", false, logrus.New())
+	fc := newTestCollector(t, false, "")
 
 	ufwOutput := `Status: active
 
@@ -208,7 +206,7 @@ To                         Action      From
 // loop: the API port-range rules were never recognized in `ufw status`, so the
 // sync re-added them and reloaded on every tick, dropping in-flight packets.
 func TestSyncDiff_StableForPortRangeRules(t *testing.T) {
-	fc := NewFirewallCollector("ufw", false, logrus.New())
+	fc := newTestCollector(t, false, "")
 
 	apiRules := []FirewallRule{
 		{From: "10.4.0.0/24", To: "10.4.0.0/24", Protocol: "tcp", Port: "1:65535"},
@@ -250,7 +248,7 @@ To                         Action      From
 // "any"). Without case-insensitive normalization the rule is re-added and
 // deleted on every sync.
 func TestSyncDiff_StableForAnyDestinationCaseSensitive(t *testing.T) {
-	fc := NewFirewallCollector("ufw", true, logrus.New())
+	fc := newTestCollector(t, true, "")
 
 	apiRules := []FirewallRule{
 		{From: "172.16.0.0/13", To: "ANY", Protocol: "tcp", Port: "1:65535"},
@@ -282,7 +280,7 @@ To                         Action      From
 // with a fake command runner and asserts that an already-synced set of
 // port-range rules issues no mutating ufw command — in particular no reload.
 func TestSyncFirewallRules_NoCommandsWhenInSync(t *testing.T) {
-	fc := NewFirewallCollector("ufw", false, logrus.New())
+	fc := newTestCollector(t, false, "")
 
 	status := `Status: active
 
@@ -322,7 +320,7 @@ To                         Action      From
 // is stored as 72.46.85.136/31), so the API form never matched `ufw status`
 // and each tick deleted the live rule.
 func TestSyncFirewallRules_NoCommandsForAddressesUFWNormalizes(t *testing.T) {
-	fc := NewFirewallCollector("ufw", false, logrus.New())
+	fc := newTestCollector(t, false, "")
 
 	status := `Status: active
 
@@ -362,7 +360,7 @@ To                         Action      From
 // "any" rule as "Anywhere", so if ::/0 were treated as "any", replacing the
 // rule with an IPv6-only one would leave IPv4 access open.
 func TestSyncFirewallRules_RemovesAnyRuleReplacedBySingleFamilyCatchAll(t *testing.T) {
-	fc := NewFirewallCollector("ufw", false, logrus.New())
+	fc := newTestCollector(t, false, "")
 
 	status := `Status: active
 
@@ -400,7 +398,7 @@ To                         Action      From
 // TestSyncFirewallRules_AddsRuleWithoutReload confirms a genuine rule addition
 // applies the rule live (`ufw allow`) and does NOT fall back to `ufw reload`.
 func TestSyncFirewallRules_AddsRuleWithoutReload(t *testing.T) {
-	fc := NewFirewallCollector("ufw", false, logrus.New())
+	fc := newTestCollector(t, false, "")
 
 	status := "Status: active\n\nTo                         Action      From\n--                         ------      ----\n"
 	var calls [][]string
@@ -437,7 +435,7 @@ func TestSyncFirewallRules_AddsRuleWithoutReload(t *testing.T) {
 }
 
 func TestSyncDiff_NoCycleFromMismatchedProtocolCase(t *testing.T) {
-	fc := NewFirewallCollector("ufw", true, logrus.New())
+	fc := newTestCollector(t, true, "")
 
 	apiRules := []FirewallRule{
 		{From: "1.1.1.1", Protocol: "TCP", Port: "8080"},
@@ -463,7 +461,8 @@ func TestSyncDiff_NoCycleFromMismatchedProtocolCase(t *testing.T) {
 // ufw directly, so the package does not need sudo; an unprivileged run (local
 // testing) still goes through sudo.
 func TestUFWCommand_SudoOnlyWhenUnprivileged(t *testing.T) {
-	fc := NewFirewallCollector("/usr/sbin/ufw", false, logrus.New())
+	fc := newTestCollector(t, false, "")
+	fc.ufwBinary = "/usr/sbin/ufw"
 
 	fc.useSudo = false
 	name, args := fc.ufwCommand("status", "numbered")
@@ -482,7 +481,7 @@ func TestUFWCommand_SudoOnlyWhenUnprivileged(t *testing.T) {
 // a dual-stack "any" rule folds into the IPv4 row, while IPv6-only rules (a
 // ::/0 source, or an "any" source to an IPv6 destination) are kept.
 func TestParseUFWRules_IPv6Rows(t *testing.T) {
-	fc := NewFirewallCollector("ufw", false, logrus.New())
+	fc := newTestCollector(t, false, "")
 
 	ufwOutput := `Status: active
 
@@ -519,7 +518,7 @@ To                         Action      From
 // stayed open after it was removed from the dashboard: ufw prints it only as a
 // "(v6)" row, which the parser skipped, so the sync never saw it to delete it.
 func TestSyncFirewallRules_RemovesIPv6OnlyCatchAll(t *testing.T) {
-	fc := NewFirewallCollector("ufw", false, logrus.New())
+	fc := newTestCollector(t, false, "")
 
 	status := `Status: active
 
@@ -559,7 +558,7 @@ To                         Action      From
 // dual-stack "any" rules that are already in place issue no ufw command, rather
 // than being re-added on every sync.
 func TestSyncFirewallRules_NoCommandsForIPv6Rules(t *testing.T) {
-	fc := NewFirewallCollector("ufw", false, logrus.New())
+	fc := newTestCollector(t, false, "")
 
 	status := `Status: active
 
@@ -624,7 +623,7 @@ func TestFirewallRuleString_CatchAllWithSpecificPeer(t *testing.T) {
 // sending ::/0 as the source of a rule to an IPv6 host, which ufw prints as
 // "Anywhere (v6)": the sync must treat it as in place.
 func TestSyncFirewallRules_NoCommandsForIPv6CatchAllToHost(t *testing.T) {
-	fc := NewFirewallCollector("ufw", false, logrus.New())
+	fc := newTestCollector(t, false, "")
 
 	status := `Status: active
 
