@@ -155,6 +155,37 @@ for pkg in "${required_packages[@]}"; do
     fi
 done
 
+# Oracle Linux on UEKR8 (OL10's default kernel) moved netfilter matches and
+# targets UFW loads (xt_limit, xt_LOG, xt_multiport, xt_recent, ...) out of
+# kernel-uek-modules into kernel-uek-modules-extra-netfilter, which nothing
+# requires or recommends. Without it 'ufw enable' fails ("Extension limit
+# revision 0 not supported") and the rules never load. Install it for the
+# running kernel when those modules are missing; once installed by name,
+# 'dnf upgrade' keeps it in step with new kernels. Hosts deployed from Latitude
+# images built before tinkerbell-packer-images#444 lack it.
+#
+# Covered by tests/install-uek-netfilter.bats.
+ensure_uek_netfilter_modules() {
+    local os_id kver pkg
+    [ "$OS_FAMILY" = "rhel" ] || return 0
+    # shellcheck source=/dev/null
+    os_id="$( . "$OS_RELEASE_FILE" 2> /dev/null && echo "${ID:-}" )"
+    [ "$os_id" = "ol" ] || return 0
+    kver="$(uname -r)"
+    case "$kver" in *uek*) ;; *) return 0 ;; esac
+    modinfo -k "$kver" xt_limit &> /dev/null && return 0
+
+    pkg="kernel-uek-modules-extra-netfilter-${kver}"
+    echo "Installing $pkg (netfilter modules UFW needs on UEK)..."
+    if ! "$RPM_PM" "${DNF_RETRY_OPTS[@]}" install -y "$pkg"; then
+        echo "Error: UFW cannot run on this kernel without the xt_limit/xt_LOG/xt_multiport modules." >&2
+        echo "Install $pkg (or boot a kernel that has them) and re-run this installer." >&2
+        exit 1
+    fi
+}
+
+ensure_uek_netfilter_modules
+
 # If installing ufw did remove netfilter-persistent, take over its one job:
 # restoring /etc/iptables/rules.v{4,6} at boot. On a Latitude host that matters —
 # the deploy template writes the metadata DNAT (169.254.169.254 -> the metadata
