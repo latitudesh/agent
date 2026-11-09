@@ -82,7 +82,7 @@ func TestFirewallRuleString(t *testing.T) {
 }
 
 func TestSyncDiff_StableForCIDRHostRules(t *testing.T) {
-	fc := NewFirewallCollector("ufw", false, logrus.New())
+	fc := newTestCollector(false, true)
 
 	apiRules := []FirewallRule{
 		{From: "8.8.8.8/32", Protocol: "TCP", Port: "8081"},
@@ -104,10 +104,7 @@ To                         Action      From
 		t.Fatalf("parseUFWRules: %v", err)
 	}
 
-	apiSet := fc.rulesToStringSet(apiRules)
-	currentSet := fc.rulesToStringSet(currentRules)
-	toAdd := fc.findRulesToAdd(currentSet, apiSet, apiRules)
-	toRemove := fc.findRulesToRemove(currentSet, apiSet, currentRules)
+	toAdd, toRemove := fc.planSync(apiRules, currentRules, true)
 
 	if len(toAdd) != 0 {
 		t.Errorf("expected no rules to add, got %d: %+v", len(toAdd), toAdd)
@@ -118,7 +115,7 @@ To                         Action      From
 }
 
 func TestParseUFWRules_CapturesDestination(t *testing.T) {
-	fc := NewFirewallCollector("ufw", false, logrus.New())
+	fc := newTestCollector(false, true)
 
 	ufwOutput := `Status: active
 
@@ -136,16 +133,16 @@ To                         Action      From
 		t.Fatalf("expected 2 rules, got %d: %+v", len(rules), rules)
 	}
 
-	if rules[0].To != "203.51.16.0/24" || rules[0].From != "8.8.8.8" || rules[0].Port != "8081" {
+	if rules[0].rule.To != "203.51.16.0/24" || rules[0].rule.From != "8.8.8.8" || rules[0].rule.Port != "8081" {
 		t.Errorf("unexpected rule with destination: %+v", rules[0])
 	}
-	if rules[1].To != "any" || rules[1].From != "1.1.1.1" || rules[1].Port != "8080" {
+	if rules[1].rule.To != "any" || rules[1].rule.From != "1.1.1.1" || rules[1].rule.Port != "8080" {
 		t.Errorf("unexpected rule without destination: %+v", rules[1])
 	}
 }
 
 func TestSyncDiff_StableForDestinationRules(t *testing.T) {
-	fc := NewFirewallCollector("ufw", false, logrus.New())
+	fc := newTestCollector(false, true)
 
 	apiRules := []FirewallRule{
 		{From: "8.8.8.8", To: "203.51.16.0/24", Protocol: "TCP", Port: "8081"},
@@ -165,10 +162,7 @@ To                         Action      From
 		t.Fatalf("parseUFWRules: %v", err)
 	}
 
-	apiSet := fc.rulesToStringSet(apiRules)
-	currentSet := fc.rulesToStringSet(currentRules)
-	toAdd := fc.findRulesToAdd(currentSet, apiSet, apiRules)
-	toRemove := fc.findRulesToRemove(currentSet, apiSet, currentRules)
+	toAdd, toRemove := fc.planSync(apiRules, currentRules, true)
 
 	if len(toAdd) != 0 {
 		t.Errorf("expected no rules to add, got %d: %+v", len(toAdd), toAdd)
@@ -179,7 +173,7 @@ To                         Action      From
 }
 
 func TestParseUFWRules_CapturesPortRange(t *testing.T) {
-	fc := NewFirewallCollector("ufw", false, logrus.New())
+	fc := newTestCollector(false, true)
 
 	ufwOutput := `Status: active
 
@@ -196,10 +190,10 @@ To                         Action      From
 	if len(rules) != 2 {
 		t.Fatalf("expected 2 rules, got %d: %+v", len(rules), rules)
 	}
-	if rules[0].To != "10.4.0.0/24" || rules[0].From != "10.4.0.0/24" || rules[0].Port != "1:65535" || rules[0].Protocol != "tcp" {
+	if rules[0].rule.To != "10.4.0.0/24" || rules[0].rule.From != "10.4.0.0/24" || rules[0].rule.Port != "1:65535" || rules[0].rule.Protocol != "tcp" {
 		t.Errorf("unexpected range rule with destination: %+v", rules[0])
 	}
-	if rules[1].To != "any" || rules[1].From != "172.16.0.0/13" || rules[1].Port != "1:65535" || rules[1].Protocol != "udp" {
+	if rules[1].rule.To != "any" || rules[1].rule.From != "172.16.0.0/13" || rules[1].rule.Port != "1:65535" || rules[1].rule.Protocol != "udp" {
 		t.Errorf("unexpected range rule without destination: %+v", rules[1])
 	}
 }
@@ -208,7 +202,7 @@ To                         Action      From
 // loop: the API port-range rules were never recognized in `ufw status`, so the
 // sync re-added them and reloaded on every tick, dropping in-flight packets.
 func TestSyncDiff_StableForPortRangeRules(t *testing.T) {
-	fc := NewFirewallCollector("ufw", false, logrus.New())
+	fc := newTestCollector(false, true)
 
 	apiRules := []FirewallRule{
 		{From: "10.4.0.0/24", To: "10.4.0.0/24", Protocol: "tcp", Port: "1:65535"},
@@ -232,10 +226,7 @@ To                         Action      From
 		t.Fatalf("parseUFWRules: %v", err)
 	}
 
-	apiSet := fc.rulesToStringSet(apiRules)
-	currentSet := fc.rulesToStringSet(currentRules)
-	toAdd := fc.findRulesToAdd(currentSet, apiSet, apiRules)
-	toRemove := fc.findRulesToRemove(currentSet, apiSet, currentRules)
+	toAdd, toRemove := fc.planSync(apiRules, currentRules, true)
 
 	if len(toAdd) != 0 {
 		t.Errorf("expected no rules to add, got %d: %+v", len(toAdd), toAdd)
@@ -250,7 +241,7 @@ To                         Action      From
 // "any"). Without case-insensitive normalization the rule is re-added and
 // deleted on every sync.
 func TestSyncDiff_StableForAnyDestinationCaseSensitive(t *testing.T) {
-	fc := NewFirewallCollector("ufw", true, logrus.New())
+	fc := newTestCollector(true, true)
 
 	apiRules := []FirewallRule{
 		{From: "172.16.0.0/13", To: "ANY", Protocol: "tcp", Port: "1:65535"},
@@ -268,12 +259,11 @@ To                         Action      From
 		t.Fatalf("parseUFWRules: %v", err)
 	}
 
-	apiSet := fc.rulesToStringSet(apiRules)
-	currentSet := fc.rulesToStringSet(currentRules)
-	if toAdd := fc.findRulesToAdd(currentSet, apiSet, apiRules); len(toAdd) != 0 {
+	toAdd, toRemove := fc.planSync(apiRules, currentRules, true)
+	if len(toAdd) != 0 {
 		t.Errorf("expected no rules to add, got %d: %+v", len(toAdd), toAdd)
 	}
-	if toRemove := fc.findRulesToRemove(currentSet, apiSet, currentRules); len(toRemove) != 0 {
+	if len(toRemove) != 0 {
 		t.Errorf("expected no rules to remove, got %d: %+v", len(toRemove), toRemove)
 	}
 }
@@ -282,7 +272,7 @@ To                         Action      From
 // with a fake command runner and asserts that an already-synced set of
 // port-range rules issues no mutating ufw command — in particular no reload.
 func TestSyncFirewallRules_NoCommandsWhenInSync(t *testing.T) {
-	fc := NewFirewallCollector("ufw", false, logrus.New())
+	fc := newTestCollector(false, true)
 
 	status := `Status: active
 
@@ -322,7 +312,7 @@ To                         Action      From
 // is stored as 72.46.85.136/31), so the API form never matched `ufw status`
 // and each tick deleted the live rule.
 func TestSyncFirewallRules_NoCommandsForAddressesUFWNormalizes(t *testing.T) {
-	fc := NewFirewallCollector("ufw", false, logrus.New())
+	fc := newTestCollector(false, true)
 
 	status := `Status: active
 
@@ -362,7 +352,7 @@ To                         Action      From
 // "any" rule as "Anywhere", so if ::/0 were treated as "any", replacing the
 // rule with an IPv6-only one would leave IPv4 access open.
 func TestSyncFirewallRules_RemovesAnyRuleReplacedBySingleFamilyCatchAll(t *testing.T) {
-	fc := NewFirewallCollector("ufw", false, logrus.New())
+	fc := newTestCollector(false, true)
 
 	status := `Status: active
 
@@ -388,7 +378,7 @@ To                         Action      From
 
 	var sawDelete bool
 	for _, c := range calls {
-		if strings.Join(c, " ") == "ufw delete allow from any to any port 22 proto tcp" {
+		if strings.Join(c, " ") == "ufw delete allow from 0.0.0.0/0 to any port 22 proto tcp" {
 			sawDelete = true
 		}
 	}
@@ -400,7 +390,7 @@ To                         Action      From
 // TestSyncFirewallRules_AddsRuleWithoutReload confirms a genuine rule addition
 // applies the rule live (`ufw allow`) and does NOT fall back to `ufw reload`.
 func TestSyncFirewallRules_AddsRuleWithoutReload(t *testing.T) {
-	fc := NewFirewallCollector("ufw", false, logrus.New())
+	fc := newTestCollector(false, true)
 
 	status := "Status: active\n\nTo                         Action      From\n--                         ------      ----\n"
 	var calls [][]string
@@ -437,7 +427,7 @@ func TestSyncFirewallRules_AddsRuleWithoutReload(t *testing.T) {
 }
 
 func TestSyncDiff_NoCycleFromMismatchedProtocolCase(t *testing.T) {
-	fc := NewFirewallCollector("ufw", true, logrus.New())
+	fc := newTestCollector(true, true)
 
 	apiRules := []FirewallRule{
 		{From: "1.1.1.1", Protocol: "TCP", Port: "8080"},
@@ -449,10 +439,7 @@ func TestSyncDiff_NoCycleFromMismatchedProtocolCase(t *testing.T) {
 		t.Fatalf("parseUFWRules: %v", err)
 	}
 
-	apiSet := fc.rulesToStringSet(apiRules)
-	currentSet := fc.rulesToStringSet(currentRules)
-	toAdd := fc.findRulesToAdd(currentSet, apiSet, apiRules)
-	toRemove := fc.findRulesToRemove(currentSet, apiSet, currentRules)
+	toAdd, toRemove := fc.planSync(apiRules, currentRules, true)
 
 	if len(toAdd) != 0 || len(toRemove) != 0 {
 		t.Errorf("expected stable diff with case-sensitive mode, got toAdd=%v toRemove=%v", toAdd, toRemove)
