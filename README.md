@@ -19,7 +19,7 @@ Notes:
 - A Linux distribution with systemd:
   - Debian/Ubuntu — UFW ships natively, or
   - RHEL family (Rocky Linux / AlmaLinux / Oracle Linux 9 and 10) — the installer enables EPEL to provide UFW when it isn't installed yet (`oracle-epel-release-el<N>` on Oracle Linux) and disables `firewalld` so UFW owns the firewall
-- amd64 or arm64 on Debian/Ubuntu; amd64 only on the RHEL family, where the installer builds the agent from source with an amd64 Go toolchain
+- amd64 or arm64, on both families (the installer installs the prebuilt package from the apt or dnf repository)
 - Root access
 - A firewall created in the [Latitude.sh dashboard](https://www.latitude.sh/dashboard) with the server added as an assignment
 
@@ -35,7 +35,7 @@ curl -fsSL https://packages.lsh.io/install.sh | sudo bash -s -- -firewall <firew
 
 (or `sudo ./install.sh ...` from a clone of this repository). `-version` pins a release; the latest is installed otherwise.
 
-The script installs the required dependencies and enables UFW with sane defaults (deny incoming, allow outgoing, allow SSH). On Debian/Ubuntu it then installs the `lsh-agent` package from the [apt repository](#installing-with-apt-debianubuntu); on the RHEL family it enables EPEL (which provides UFW) unless UFW is already installed, disables `firewalld` so UFW owns the firewall, and builds the agent from source. Either way it writes `/etc/lsh-agent/env` and starts the `lsh-agent` systemd service, checking that it stays up.
+The script installs the required dependencies and enables UFW with sane defaults (deny incoming, allow outgoing, allow SSH). On the RHEL family it first enables EPEL (which provides UFW) unless UFW is already installed, and disables `firewalld` so UFW owns the firewall. It then installs the `lsh-agent` package from the [apt or dnf repository](#installing-from-the-package-repositories), and hosts set up by older versions of the script, which built the agent from source, are migrated to the package. Either way it writes `/etc/lsh-agent/env` and starts the `lsh-agent` systemd service, checking that it stays up.
 
 > **Important:** make sure the server is added to the firewall in the Latitude.sh dashboard, otherwise the agent will have no rules to sync.
 
@@ -131,7 +131,7 @@ Requires Go 1.23+, and [syft](https://github.com/anchore/syft#installation) for 
 
 ```bash
 make build         # build ./build/lsh-agent
-make build-linux   # cross-compile for linux/amd64
+make build-linux   # cross-compile for linux/amd64 and linux/arm64
 make test          # run the Go tests
 make test-shell    # Bats + ShellCheck for install.sh, uninstall.sh and the package scripts
 make package       # build the .deb and its SBOM into ./dist (snapshot; needs syft)

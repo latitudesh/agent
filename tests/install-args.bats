@@ -45,3 +45,9 @@ setup() {
 @test "-version accepts a leading v (v1.2.3 -> 1.2.3)" {
   assert_contains "$INSTALL_SH" 'AGENT_VERSION="${2#v}"'
 }
+
+@test "-version pins the package the same way on both families (v prefix dropped)" {
+  assert_contains "$INSTALL_SH" 'AGENT_VERSION="${2#v}"'
+  assert_contains "$INSTALL_SH" '"lsh-agent${AGENT_VERSION:+=$AGENT_VERSION}"'
+  assert_contains "$INSTALL_SH" 'install -y "lsh-agent${AGENT_VERSION:+-$AGENT_VERSION}"'
+}
