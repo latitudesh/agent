@@ -1,0 +1,24 @@
+# Keeps the pinned workflow actions and the Go modules current. Each update
+# arrives as a PR and goes through ci.yml and pr-checks.yml. The 7-day cooldown
+# skips releases that get yanked or fixed right after publishing.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      gomod:
+        patterns: ["*"]

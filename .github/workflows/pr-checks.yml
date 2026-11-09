@@ -1,0 +1,56 @@
+name: pr-checks
+
+# Every PR, forks included: secrets in what it adds, and the workflows
+# themselves. Runs with a read-only token and no repository secrets.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  secrets:
+    name: Secrets (gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # The commits this PR adds, merges included (diffed against their first
+      # parent), then the resulting tree.
+      # Exit 3 = a finding; any other non-zero is a scan error, and both fail.
+      - name: gitleaks
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GITLEAKS: zricethezav/gitleaks:v8.28.0@sha256:cdbb7c955abce02001a9f6c9f602fb195b7fadc1e812065883f695d1eeaba854
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo "$GITLEAKS" \
+            git --no-banner --redact --exit-code 3 --log-opts="--diff-merges=first-parent ${BASE_SHA}..HEAD" .
+          docker run --rm -v "$PWD:/repo" -w /repo "$GITLEAKS" \
+            dir --no-banner --redact --exit-code 3 .
+
+  workflows:
+    name: Workflows (zizmor)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: zizmor
+        run: |
+          docker run --rm -v "$PWD:/repo:ro" \
+            ghcr.io/zizmorcore/zizmor:1.31.1@sha256:42d409dbb851d4c5d35a058cf042b828bea1e3f2884378c526eb0974780e18d9 \
+            --offline --format github /repo/.github
