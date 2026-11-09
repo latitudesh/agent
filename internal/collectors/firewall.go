@@ -91,6 +91,10 @@ type FirewallCollector struct {
 	caseSensitive bool
 	logger        *logrus.Logger
 	run           commandRunner
+	// useSudo prefixes ufw with sudo. Only needed when the agent is started
+	// by an unprivileged user (local testing); under systemd it runs as root
+	// and calls ufw directly, so hosts without sudo work too.
+	useSudo bool
 }
 
 // NewFirewallCollector creates a new firewall collector
@@ -100,12 +104,27 @@ func NewFirewallCollector(ufwBinary string, caseSensitive bool, logger *logrus.L
 		caseSensitive: caseSensitive,
 		logger:        logger,
 		run:           execRunner,
+		useSudo:       os.Geteuid() != 0,
 	}
+}
+
+// ufwCommand returns the command and arguments that run ufw with args.
+func (fc *FirewallCollector) ufwCommand(args ...string) (string, []string) {
+	if fc.useSudo {
+		return "sudo", append([]string{fc.ufwBinary}, args...)
+	}
+	return fc.ufwBinary, args
+}
+
+// ufw runs ufw with args through fc.run.
+func (fc *FirewallCollector) ufw(ctx context.Context, args ...string) ([]byte, error) {
+	name, cmdArgs := fc.ufwCommand(args...)
+	return fc.run(ctx, name, cmdArgs...)
 }
 
 // GetCurrentUFWRules retrieves current UFW rules from the system
 func (fc *FirewallCollector) GetCurrentUFWRules(ctx context.Context) ([]FirewallRule, error) {
-	output, err := fc.run(ctx, "sudo", fc.ufwBinary, "status")
+	output, err := fc.ufw(ctx, "status")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get UFW status: %w", err)
 	}
@@ -291,7 +310,7 @@ func (fc *FirewallCollector) addUFWRule(ctx context.Context, rule FirewallRule) 
 	// UFW requires lowercase protocol names
 	protocol := strings.ToLower(rule.Protocol)
 
-	output, err := fc.run(ctx, "sudo", fc.ufwBinary, "allow",
+	output, err := fc.ufw(ctx, "allow",
 		"proto", protocol,
 		"from", from,
 		"to", to,
@@ -318,7 +337,7 @@ func (fc *FirewallCollector) removeUFWRule(ctx context.Context, rule FirewallRul
 	// UFW requires lowercase protocol names
 	protocol := strings.ToLower(rule.Protocol)
 
-	output, err := fc.run(ctx, "sudo", fc.ufwBinary, "delete", "allow",
+	output, err := fc.ufw(ctx, "delete", "allow",
 		"from", from,
 		"to", to,
 		"port", rule.Port,
@@ -332,7 +351,8 @@ func (fc *FirewallCollector) removeUFWRule(ctx context.Context, rule FirewallRul
 
 // GetFirewallStatus returns the current UFW status
 func (fc *FirewallCollector) GetFirewallStatus(ctx context.Context) (string, error) {
-	cmd := exec.CommandContext(ctx, "sudo", fc.ufwBinary, "status", "numbered")
+	name, args := fc.ufwCommand("status", "numbered")
+	cmd := exec.CommandContext(ctx, name, args...)
 	output, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("failed to get UFW status: %w", err)

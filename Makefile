@@ -61,9 +61,11 @@ test-shell:
 	shellcheck --severity=warning --shell=bash tests/*.bats
 	bats tests/
 
-# Build the .deb locally with GoReleaser (snapshot build, nothing is published)
+# Build the .deb and its SBOM locally with GoReleaser (snapshot build, nothing
+# is published). Needs syft on PATH for the SBOM.
 .PHONY: package
 package:
+	@command -v syft > /dev/null || { echo "syft is required for the SBOMs (.goreleaser.yaml): https://github.com/anchore/syft#installation"; exit 1; }
 	@echo "Building $(BINARY_NAME) package..."
 	$(GOCMD) run github.com/goreleaser/goreleaser/v2@latest release --snapshot --clean
 

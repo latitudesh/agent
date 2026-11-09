@@ -53,6 +53,12 @@ nfpms:
       preremove: packaging/scripts/prerm
       postremove: packaging/scripts/postrm
 
+# One SPDX SBOM per .deb (lsh-agent_<version>_<arch>.deb.sbom.json), uploaded
+# with the release. Needs syft on PATH (release.yml and ci.yml install it).
+sboms:
+  - id: packages
+    artifacts: package
+
 snapshot:
   # 1.0.3-dev becomes 1.0.3~dev in the .deb, which sorts below the 1.0.3 release.
   version_template: "{{ incpatch .Version }}-dev"
