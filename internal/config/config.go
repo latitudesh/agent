@@ -35,11 +35,9 @@ type LatitudeConfig struct {
 
 // FirewallConfig contains firewall-specific settings
 type FirewallConfig struct {
-	Enabled         bool   `yaml:"enabled" default:"true"`
-	UFWBinary       string `yaml:"ufw_binary" default:"/usr/sbin/ufw"`
-	CaseSensitive   bool   `yaml:"case_sensitive" default:"false"`
-	TempFile        string `yaml:"temp_file" default:"/tmp/lsh_firewall_temp.json"`
-	OutputFile      string `yaml:"output_file" default:"/tmp/lsh_firewall.json"`
+	Enabled       bool   `yaml:"enabled" default:"true"`
+	UFWBinary     string `yaml:"ufw_binary" default:"/usr/sbin/ufw"`
+	CaseSensitive bool   `yaml:"case_sensitive" default:"false"`
 }
 
 // LoggingConfig contains logging configuration
@@ -59,8 +57,6 @@ func LoadConfig(configPath string) (*Config, error) {
 	config.Firewall.Enabled = true
 	config.Firewall.UFWBinary = "/usr/sbin/ufw"
 	config.Firewall.CaseSensitive = false
-	config.Firewall.TempFile = "/tmp/lsh_firewall_temp.json"
-	config.Firewall.OutputFile = "/tmp/lsh_firewall.json"
 	config.Logging.Level = "info"
 	config.Logging.Format = "text"
 
