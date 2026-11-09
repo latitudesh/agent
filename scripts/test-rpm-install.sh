@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# Smoke-tests the .rpm the way test-apt-install.sh tests the .deb: installs
-# lsh-agent over what install.sh used to leave behind (a source build), checks
-# the migration, keeps a changed config across a reinstall, then removes it.
-# Given a second directory with an older lsh-agent .rpm, the first install is
-# that older package and the one under test arrives as a real upgrade, which
-# must keep the admin's choice to disable the agent.
+# Smoke-tests the .rpm the way test-apt-install.sh tests the .deb: builds a
+# signed dnf repository from the given .rpms with a throwaway key, installs
+# lsh-agent from it over what install.sh used to leave behind (a source
+# build), checks the migration, keeps a changed config across a reinstall,
+# then removes it. Given a second directory with an older lsh-agent .rpm, the
+# repository holds both, the first install is the older package, and the one
+# under test arrives as a real upgrade, which must keep the admin's choice to
+# disable the agent.
 #
 # Run as root in a disposable RHEL-family container (it rewrites system files),
 # e.g.:
@@ -19,6 +21,7 @@ if [ $# -ne 1 ] && [ $# -ne 2 ]; then
 fi
 rpms_dir=$(realpath "$1")
 old_dir=${2:+$(realpath "$2")}
+root=$(dirname "$(dirname "$(realpath "$0")")")
 
 # install.sh's dnf policy, with an outer retry for mirror syncs.
 dnf_net=(--setopt=retries=10 --setopt=timeout=30 --setopt=minrate=1000)
@@ -47,19 +50,47 @@ if [ ${#rpms[@]} -ne 1 ]; then
     echo "Expected one $(uname -m) .rpm in $rpms_dir, found ${#rpms[@]}" >&2
     exit 1
 fi
-rpm_file=${rpms[0]}
-version=$(rpm -qp --qf '%{VERSION}' "$rpm_file")
-old_rpm=
+version=$(rpm -qp --qf '%{VERSION}' "${rpms[0]}")
+old_version=
 if [ -n "$old_dir" ]; then
     old_rpms=("$old_dir"/lsh-agent-*."$(uname -m)".rpm)
     if [ ${#old_rpms[@]} -ne 1 ]; then
         echo "Expected one $(uname -m) .rpm in $old_dir, found ${#old_rpms[@]}" >&2
         exit 1
     fi
-    old_rpm=${old_rpms[0]}
-    old_version=$(rpm -qp --qf '%{VERSION}' "$old_rpm")
+    old_version=$(rpm -qp --qf '%{VERSION}' "${old_rpms[0]}")
 fi
 installed_version() { rpm -q --qf '%{VERSION}' lsh-agent; }
+
+dnf_install createrepo_c gnupg2
+
+# The key is throwaway; the repository layout and signatures are the real thing.
+GNUPGHOME=$(mktemp -d)
+export GNUPGHOME
+gpg --batch --passphrase '' --quick-gen-key 'lsh-agent CI <ci@example.invalid>' rsa3072 sign never
+repo=$(mktemp -d)
+mkdir "$repo/in"
+cp "$rpms_dir"/*.rpm "$repo/in/"
+[ -z "$old_dir" ] || cp "$old_dir"/*.rpm "$repo/in/"
+REPO_URL="file://$repo/rpm" bash "$root/scripts/build-rpm-repo.sh" "$repo/in" "$repo/rpm"
+chmod -R a+rX "$repo"
+
+echo "== the metadata signature verifies"
+gpg --batch --verify "$repo/rpm/repodata/repomd.xml.asc" "$repo/rpm/repodata/repomd.xml"
+
+echo "== a repository whose metadata does not match its signature is refused"
+bad=$(mktemp -d)
+cp -a "$repo/rpm/." "$bad/"
+printf '<!-- tampered -->\n' >> "$bad/repodata/repomd.xml"
+sed -e "s#$repo/rpm#$bad#g" -e 's#^\[lsh-agent\]$#[lsh-agent-tampered]#' "$repo/rpm/lsh-agent.repo" > /etc/yum.repos.d/lsh-agent-tampered.repo
+if dnf -y --disablerepo='*' --enablerepo=lsh-agent-tampered makecache > /dev/null 2>&1; then
+    echo "dnf accepted repository metadata that does not match its signature" >&2
+    exit 1
+fi
+rm -f /etc/yum.repos.d/lsh-agent-tampered.repo
+
+# Set the repository up the way users do: the one .repo file.
+cp "$repo/rpm/lsh-agent.repo" /etc/yum.repos.d/lsh-agent.repo
 
 # What install.sh used to set up on the host.
 install -d /etc/systemd/system/multi-user.target.wants /etc/lsh-agent /usr/local/bin
@@ -76,14 +107,18 @@ printf 'FIREWALL_ID=fw_test\nPROJECT_ID=proj_test\n' > /etc/lsh-agent/env
 # that came in only as a dependency when the package that pulled them is
 # removed, and removing the agent must never take the host firewall with it.
 dnf_install ufw
-if [ -n "$old_rpm" ]; then
-    dnf_install "$old_rpm"
+if [ -n "$old_version" ]; then
+    dnf_install "lsh-agent-$old_version"
     test "$(installed_version)" = "$old_version"
 else
-    dnf_install "$rpm_file"
+    dnf_install lsh-agent
 fi
 
-echo "== installed"
+echo "== installed from the repository"
+test "$(dnf repoquery --installed --qf '%{from_repo}' lsh-agent 2> /dev/null || dnf repoquery --installed --qf '%{reponame}' lsh-agent)" = lsh-agent || {
+    echo "lsh-agent did not come from the lsh-agent repository" >&2
+    exit 1
+}
 lsh-agent -version
 lsh-agent -check-config # needs the env file above and ufw, pulled in as a dependency
 test -f /usr/lib/systemd/system/lsh-agent.service
@@ -96,10 +131,10 @@ test "$(readlink /usr/local/bin/lsh-agent)" = /usr/bin/lsh-agent
 # Enabled on first install, against the packaged unit.
 test "$(readlink -f /etc/systemd/system/multi-user.target.wants/lsh-agent.service)" = /usr/lib/systemd/system/lsh-agent.service
 
-if [ -n "$old_rpm" ]; then
+if [ -n "$old_version" ]; then
     echo "== upgrade $old_version -> $version keeps the admin's disable"
     systemctl disable lsh-agent.service
-    dnf_install "$rpm_file"
+    dnf_install lsh-agent
     test "$(installed_version)" = "$version"
     # The new binary runs (lsh-agent -version prints v<old version> otherwise).
     if lsh-agent -version | grep -qF "v$old_version"; then
@@ -113,7 +148,7 @@ fi
 
 echo "== a changed config survives a reinstall"
 printf '\n# local change\n' >> /etc/lsh-agent/config.yaml
-dnf "${dnf_net[@]}" reinstall -y "$rpm_file"
+dnf "${dnf_net[@]}" reinstall -y lsh-agent
 grep -q '^# local change$' /etc/lsh-agent/config.yaml
 
 echo "== removed"

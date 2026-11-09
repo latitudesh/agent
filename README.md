@@ -39,9 +39,11 @@ The script installs the required dependencies and enables UFW with sane defaults
 
 > **Important:** make sure the server is added to the firewall in the Latitude.sh dashboard, otherwise the agent will have no rules to sync.
 
-### Installing with apt (Debian/Ubuntu)
+### Installing from the package repositories
 
-The agent is also published as a `.deb` package in a signed apt repository, for Ubuntu 22.04+ and Debian 12+ on amd64 and arm64:
+The agent is also published as `.deb` and `.rpm` packages in signed apt and dnf repositories at `packages.lsh.io` (same signing key), on amd64 and arm64.
+
+Debian and Ubuntu (Ubuntu 22.04+, Debian 12+):
 
 ```bash
 # One file sets the repository up, signing key included
@@ -50,7 +52,17 @@ sudo apt-get update
 sudo apt-get install -y lsh-agent             # or lsh-agent=<version> to pin one
 ```
 
-The package installs the binary, the `lsh-agent` systemd unit and the default configuration, and restarts the agent on every upgrade. It does not configure the host: the service stays inactive until `/etc/lsh-agent/env` exists, and UFW is left as it is. To finish the setup:
+RHEL family (AlmaLinux, Rocky Linux, Oracle Linux 9+; ufw comes from EPEL):
+
+```bash
+sudo dnf install -y epel-release              # Oracle Linux: oracle-epel-release-el9 / -el10
+sudo curl -fsSLo /etc/yum.repos.d/lsh-agent.repo https://packages.lsh.io/rpm/lsh-agent.repo
+sudo dnf install -y ufw lsh-agent             # or lsh-agent-<version> to pin one
+```
+
+Install `ufw` by name, as above: dnf removes packages that came in only as a dependency, so `dnf remove lsh-agent` would otherwise remove the firewall too. The dnf repository verifies the signed metadata (`repo_gpgcheck=1`), which pins the checksum of every package, the same model as the apt repository.
+
+Both packages install the binary, the `lsh-agent` systemd unit and the default configuration, and restart the agent on every upgrade. They do not configure the host: the service stays inactive until `/etc/lsh-agent/env` exists, and UFW is left as it is. To finish the setup:
 
 ```bash
 # Bind the agent to your firewall and project
@@ -66,6 +78,15 @@ sudo ufw allow ssh
 sudo ufw --force enable
 
 sudo systemctl restart lsh-agent
+```
+
+On the RHEL family, hand the firewall over from `firewalld` to UFW instead of the plain `ufw --force enable` above, as `install.sh` does: `firewalld` and UFW would both drive netfilter, and EPEL's `ufw enable` does not enable `ufw.service`, so the rules would not come back after a reboot.
+
+```bash
+sudo systemctl disable --now firewalld
+# If this fails, bring firewalld back before going further: sudo systemctl enable --now firewalld
+sudo ufw --force enable
+sudo systemctl enable ufw
 ```
 
 Hosts previously set up with `install.sh` are migrated when the package is installed: the service switches to the packaged binary, and `/usr/local/bin/lsh-agent` becomes a link to it.
@@ -123,13 +144,13 @@ See [TESTING.md](TESTING.md) for detailed testing instructions.
 
 Every merge into `main` updates a draft of the next release ([Release Drafter](https://github.com/release-drafter/release-drafter)): merged PRs grouped by type, and the next version resolved from their labels. The labels come from the conventional-commit PR titles: `feat` bumps the minor, `!` (e.g. `feat!:`) the major, and everything else the patch.
 
-To release, open the draft under **Releases**, review it and publish it. Publishing creates the `vX.Y.Z` tag, and the `release` workflow then builds the binaries and the `.deb` and `.rpm` packages with GoReleaser, attaches them to the release, and redeploys the apt repository at `https://packages.lsh.io/apt` with the packages of every published release. Pre-release tags (e.g. `v1.2.0-rc.1`) get artifacts but are not added to the repository.
+To release, open the draft under **Releases**, review it and publish it. Publishing creates the `vX.Y.Z` tag, and the `release` workflow then builds the binaries and the `.deb` and `.rpm` packages with GoReleaser, attaches them to the release, and redeploys the apt and dnf repositories at `https://packages.lsh.io/apt` and `https://packages.lsh.io/rpm` with the packages of every published release. Pre-release tags (e.g. `v1.2.0-rc.1`) get artifacts but are not added to the repository.
 
 The workflow needs:
 
 - GitHub Pages deploying from GitHub Actions, with the custom domain `packages.lsh.io`;
 - a `v*` tag rule in the `github-pages` environment, so tag builds can deploy;
-- the `APT_SIGNING_KEY` secret, the ASCII-armored private key that signs the repository (without a passphrase), stored as a secret of the `github-pages` environment rather than of the repository, so only `main` and `v*` tags can read it;
+- the `APT_SIGNING_KEY` secret, the ASCII-armored private key that signs both repositories (without a passphrase), stored as a secret of the `github-pages` environment rather than of the repository, so only `main` and `v*` tags can read it;
 - a tag ruleset restricting who can create `v*` tags, since pushing one publishes a release.
 
 To redeploy the repository without a release (e.g. after rotating the key), run the `release` workflow manually from `main`.
