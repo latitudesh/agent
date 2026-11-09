@@ -26,8 +26,12 @@ type FirewallRule struct {
 // /32 and /128 host suffixes and may use uppercase protocol) and ufw
 // status output (which strips /32 and /128 and emits lowercase protocol).
 func (r FirewallRule) String() string {
-	from := normalizeAddr(r.From)
-	to := normalizeAddr(r.To)
+	n := r.normalized()
+	return fmt.Sprintf("From: %s, To: %s, Protocol: %s, Port: %s", n.From, n.To, n.Protocol, n.Port)
+}
+
+// normalized returns the rule with every field in the form ufw stores it.
+func (r FirewallRule) normalized() FirewallRule {
 	protocol := strings.ToLower(strings.TrimSpace(r.Protocol))
 	if protocol == "" {
 		protocol = "any"
@@ -36,7 +40,7 @@ func (r FirewallRule) String() string {
 	if port == "" {
 		port = "any"
 	}
-	return fmt.Sprintf("From: %s, To: %s, Protocol: %s, Port: %s", from, to, protocol, port)
+	return FirewallRule{From: normalizeAddr(r.From), To: normalizeAddr(r.To), Protocol: protocol, Port: port}
 }
 
 // normalizeAddr canonicalizes a source/destination address the way ufw does
@@ -48,10 +52,8 @@ func (r FirewallRule) String() string {
 // 72.46.85.137/31, but ufw stores and prints 72.46.85.136/31. Without that, the
 // same rule lands in both toAdd and toRemove, and every other sync deletes it.
 //
-// A /0 prefix is deliberately not collapsed to "any": ufw status prints
-// "Anywhere" for both a dual-stack "any" rule and a single-family 0.0.0.0/0 or
-// ::/0 rule, and the parser skips the (v6) rows, so equating them could keep
-// access open in an address family the API no longer allows.
+// A /0 prefix is kept as is: "any" covers both address families while
+// 0.0.0.0/0 and ::/0 cover one. splitByFamily is where they are told apart.
 func normalizeAddr(addr string) string {
 	a := strings.TrimSpace(addr)
 	if a == "" || strings.EqualFold(a, "Anywhere") || strings.EqualFold(a, "any") {
@@ -68,6 +70,81 @@ func normalizeAddr(addr string) string {
 		return ip.String()
 	}
 	return a
+}
+
+// ipFamily is the ufw table a rule lives in. ufw keeps IPv4 and IPv6 rules in
+// separate tables (/etc/ufw/user.rules and user6.rules): a dual-stack "any"
+// rule is one entry in each, while 0.0.0.0/0 and ::/0 are an entry in one
+// table only. `ufw status` prints every catch-all address as "Anywhere" and
+// tags rows of the IPv6 table with "(v6)", so the three can only be told apart
+// by comparing the rules table by table.
+type ipFamily string
+
+const (
+	ipv4 ipFamily = "v4"
+	ipv6 ipFamily = "v6"
+)
+
+// tableRule is one entry of a ufw table. Its addresses are normalized, and a
+// catch-all address (any, 0.0.0.0/0, ::/0) is always "any": the table already
+// says which family it covers.
+type tableRule struct {
+	family ipFamily
+	rule   FirewallRule
+}
+
+// addrFamily returns the family an address pins a rule to, or "" for "any".
+func addrFamily(addr string) (ipFamily, error) {
+	if addr == "any" {
+		return "", nil
+	}
+	ip, err := netip.ParseAddr(addr)
+	if err != nil {
+		prefix, perr := netip.ParsePrefix(addr)
+		if perr != nil {
+			return "", fmt.Errorf("unsupported address %q", addr)
+		}
+		ip = prefix.Addr()
+	}
+	if ip.Is4() {
+		return ipv4, nil
+	}
+	return ipv6, nil
+}
+
+// isCatchAll reports whether a normalized address matches every host of its
+// family.
+func isCatchAll(addr string) bool {
+	return addr == "any" || addr == "0.0.0.0/0" || addr == "::/0"
+}
+
+// splitByFamily normalizes a rule and returns the family its addresses pin it
+// to ("" when both are "any", i.e. it is a dual-stack rule), with catch-all
+// addresses rewritten to "any".
+func splitByFamily(r FirewallRule) (FirewallRule, ipFamily, error) {
+	n := r.normalized()
+	from, err := addrFamily(n.From)
+	if err != nil {
+		return n, "", err
+	}
+	to, err := addrFamily(n.To)
+	if err != nil {
+		return n, "", err
+	}
+	if from != "" && to != "" && from != to {
+		return n, "", fmt.Errorf("mixes IPv4 and IPv6 addresses")
+	}
+	family := from
+	if family == "" {
+		family = to
+	}
+	if isCatchAll(n.From) {
+		n.From = "any"
+	}
+	if isCatchAll(n.To) {
+		n.To = "any"
+	}
+	return n, family, nil
 }
 
 // FirewallResponse represents the API response structure
@@ -96,6 +173,9 @@ type FirewallCollector struct {
 	// by an unprivileged user (local testing); under systemd it runs as root
 	// and calls ufw directly, so hosts without sudo work too.
 	useSudo bool
+	// ipv6Enabled reports whether ufw manages IPv6 on this host. It is read
+	// on every sync so a change to /etc/default/ufw needs no agent restart.
+	ipv6Enabled func() (bool, error)
 }
 
 // NewFirewallCollector creates a new firewall collector
@@ -106,7 +186,37 @@ func NewFirewallCollector(ufwBinary string, caseSensitive bool, logger *logrus.L
 		logger:        logger,
 		run:           execRunner,
 		useSudo:       os.Geteuid() != 0,
+		ipv6Enabled: func() (bool, error) {
+			return ufwIPv6Enabled("/etc/default/ufw", "/proc/sys/net/ipv6")
+		},
 	}
+}
+
+// ufwDefaultRegex matches a setting the way ufw's _get_defaults reads
+// /etc/default/ufw: KEY=value at the start of the line, optionally quoted.
+var ufwDefaultRegex = regexp.MustCompile(`^(\w+)="?(\w+)"?`)
+
+// ufwIPv6Enabled reports whether ufw manages IPv6, deciding it as ufw does:
+// IPV6=yes in its defaults file (the last setting wins, a missing one means
+// no) and a kernel with IPv6 support.
+func ufwIPv6Enabled(defaultsPath, procIPv6Path string) (bool, error) {
+	data, err := os.ReadFile(defaultsPath)
+	if err != nil {
+		return false, err
+	}
+	enabled := false
+	for _, line := range strings.Split(string(data), "\n") {
+		if m := ufwDefaultRegex.FindStringSubmatch(line); m != nil && strings.EqualFold(m[1], "IPV6") {
+			enabled = strings.EqualFold(m[2], "yes")
+		}
+	}
+	if !enabled {
+		return false, nil
+	}
+	if _, err := os.Stat(procIPv6Path); err != nil {
+		return false, nil
+	}
+	return true, nil
 }
 
 // ufwCommand returns the command and arguments that run ufw with args.
@@ -123,8 +233,8 @@ func (fc *FirewallCollector) ufw(ctx context.Context, args ...string) ([]byte, e
 	return fc.run(ctx, name, cmdArgs...)
 }
 
-// GetCurrentUFWRules retrieves current UFW rules from the system
-func (fc *FirewallCollector) GetCurrentUFWRules(ctx context.Context) ([]FirewallRule, error) {
+// currentTableRules reads the rules ufw has in place, per table.
+func (fc *FirewallCollector) currentTableRules(ctx context.Context) ([]tableRule, error) {
 	output, err := fc.ufw(ctx, "status")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get UFW status: %w", err)
@@ -133,50 +243,161 @@ func (fc *FirewallCollector) GetCurrentUFWRules(ctx context.Context) ([]Firewall
 	return fc.parseUFWRules(string(output))
 }
 
-// parseUFWRules parses UFW status output into FirewallRule structs
-func (fc *FirewallCollector) parseUFWRules(output string) ([]FirewallRule, error) {
-	var rules []FirewallRule
-	lines := strings.Split(output, "\n")
+// ufwRuleRegex matches an ALLOW row of `ufw status`. The "To" column carries an
+// optional destination before the port/proto: when the destination is "any"
+// ufw prints just the port (e.g. "22/tcp ALLOW Anywhere"), and when it is a
+// specific host it prefixes it (e.g. "203.51.16.0 8081/tcp ALLOW 8.8.8.8").
+// Group 1 captures that optional destination. The port/proto (group 2) is
+// either a single port ("22/tcp") or a port range ("1:65535/tcp"); without the
+// range branch, range rules fail to parse and the sync re-adds them every cycle.
+// The "(v6)" tags are stripped before matching.
+var ufwRuleRegex = regexp.MustCompile(`^(?:(\S+)\s+)?([0-9]+(?::[0-9]+)?/[a-z]+)\s+ALLOW\s+(.+)$`)
 
-	// Regular expression to match UFW rules. The "To" column carries an
-	// optional destination before the port/proto: when the destination is
-	// "any" ufw prints just the port (e.g. "22/tcp ALLOW Anywhere"), and
-	// when it is a specific host it prefixes it (e.g. "203.51.16.0 8081/tcp
-	// ALLOW 8.8.8.8"). Group 1 captures that optional destination. The
-	// port/proto (group 2) is either a single port ("22/tcp") or a port
-	// range ("1:65535/tcp"); without the range branch, range rules fail to
-	// parse and the sync re-adds + reloads them every cycle.
-	ruleRegex := regexp.MustCompile(`^(?:(\S+)\s+)?([0-9]+(?::[0-9]+)?/[a-z]+)\s+ALLOW\s+(.+)$`)
+// parseUFWRules parses `ufw status` output into the rules of each ufw table.
+// A row belongs to the IPv6 table when ufw tags it "(v6)" (it does so when an
+// address is ::/0, printed as "Anywhere (v6)") or when an address is IPv6.
+func (fc *FirewallCollector) parseUFWRules(output string) ([]tableRule, error) {
+	var rules []tableRule
 
-	for _, line := range lines {
+	for _, line := range strings.Split(output, "\n") {
 		line = strings.TrimSpace(line)
-		if strings.Contains(line, "ALLOW") && !strings.Contains(line, "(v6)") {
-			matches := ruleRegex.FindStringSubmatch(line)
-			if len(matches) >= 4 {
-				to := strings.TrimSpace(matches[1])
-				portProto := matches[2]
-				from := strings.TrimSpace(matches[3])
-
-				// Parse port and protocol
-				parts := strings.Split(portProto, "/")
-				if len(parts) != 2 {
-					continue
-				}
-
-				port := parts[0]
-				protocol := parts[1]
-
-				rules = append(rules, FirewallRule{
-					From:     normalizeAddr(from),
-					To:       normalizeAddr(to),
-					Protocol: protocol,
-					Port:     port,
-				})
-			}
+		if !strings.Contains(line, "ALLOW") {
+			continue
 		}
+		tagged := strings.Contains(line, "(v6)")
+		line = strings.ReplaceAll(line, " (v6)", "")
+
+		matches := ufwRuleRegex.FindStringSubmatch(line)
+		if matches == nil {
+			continue
+		}
+		port, protocol, ok := strings.Cut(matches[2], "/")
+		if !ok {
+			continue
+		}
+
+		rule, family, err := splitByFamily(FirewallRule{
+			From:     strings.TrimSpace(matches[3]),
+			To:       strings.TrimSpace(matches[1]),
+			Protocol: protocol,
+			Port:     port,
+		})
+		if err != nil {
+			fc.logger.Warnf("Ignoring ufw rule %q: %v", line, err)
+			continue
+		}
+		switch {
+		case tagged && family == ipv4:
+			fc.logger.Warnf("Ignoring ufw rule %q: IPv4 address in an IPv6 row", line)
+			continue
+		case tagged:
+			family = ipv6
+		case family == "":
+			family = ipv4
+		}
+		rules = append(rules, tableRule{family: family, rule: rule})
 	}
 
 	return rules, nil
+}
+
+// desiredTableRules expands the API rules into the ufw table entries they
+// should produce. "any" is a rule in each table ufw manages, so in the IPv4
+// table only when ufw has IPv6 off; 0.0.0.0/0, ::/0 and specific addresses are
+// a rule in their own family's table.
+func (fc *FirewallCollector) desiredTableRules(apiRules []FirewallRule, ipv6On bool) []tableRule {
+	var rules []tableRule
+	for _, apiRule := range apiRules {
+		rule, family, err := splitByFamily(apiRule)
+		if err != nil {
+			fc.logger.Warnf("Skipping API rule %s: %v", apiRule.String(), err)
+			continue
+		}
+		switch family {
+		case "":
+			rules = append(rules, tableRule{ipv4, rule})
+			if ipv6On {
+				rules = append(rules, tableRule{ipv6, rule})
+			}
+		case ipv6:
+			if !ipv6On {
+				fc.logger.Warnf("Skipping API rule %s: IPv6 is disabled in ufw (IPV6 in /etc/default/ufw)", apiRule.String())
+				continue
+			}
+			rules = append(rules, tableRule{ipv6, rule})
+		default:
+			rules = append(rules, tableRule{ipv4, rule})
+		}
+	}
+	return rules
+}
+
+// key identifies a table rule for the diff.
+func (fc *FirewallCollector) key(r tableRule) string {
+	key := string(r.family) + " " + r.rule.String()
+	if !fc.caseSensitive {
+		key = strings.ToLower(key)
+	}
+	return key
+}
+
+// diffTableRules returns the entries of want missing from have, in want's
+// order and without duplicates.
+func (fc *FirewallCollector) diffTableRules(want, have []tableRule) []tableRule {
+	seen := make(map[string]bool, len(have))
+	for _, r := range have {
+		seen[fc.key(r)] = true
+	}
+	var missing []tableRule
+	for _, r := range want {
+		k := fc.key(r)
+		if !seen[k] {
+			missing = append(missing, r)
+			seen[k] = true
+		}
+	}
+	return missing
+}
+
+// ufwRules turns table entries into the rules to pass to `ufw allow` or
+// `ufw delete allow`. A rule with only catch-all addresses applies to every
+// table when its addresses are "any", so:
+//   - when it is listed for both tables it becomes a single "any" rule, as the
+//     dashboard sends it;
+//   - when it is listed for one table only, its source is spelled 0.0.0.0/0 or
+//     ::/0, so ufw adds or deletes that table's entry and leaves the other
+//     family alone. A rule with a specific address already pins the family.
+func ufwRules(entries []tableRule) []FirewallRule {
+	families := make(map[FirewallRule]int)
+	for _, e := range entries {
+		families[e.rule]++
+	}
+	var rules []FirewallRule
+	emitted := make(map[FirewallRule]bool)
+	for _, e := range entries {
+		r := e.rule
+		if r.From == "any" && r.To == "any" {
+			if families[r] > 1 {
+				if emitted[r] {
+					continue
+				}
+				emitted[r] = true
+			} else if e.family == ipv6 {
+				r.From = "::/0"
+			} else {
+				r.From = "0.0.0.0/0"
+			}
+		}
+		rules = append(rules, r)
+	}
+	return rules
+}
+
+// planSync compares the API rules with the rules in place, table by table, and
+// returns the ufw rules to add and to delete.
+func (fc *FirewallCollector) planSync(apiRules []FirewallRule, current []tableRule, ipv6On bool) (toAdd, toRemove []FirewallRule) {
+	desired := fc.desiredTableRules(apiRules, ipv6On)
+	return ufwRules(fc.diffTableRules(desired, current)), ufwRules(fc.diffTableRules(current, desired))
 }
 
 // SyncFirewallRules synchronizes UFW rules with API rules
@@ -192,20 +413,22 @@ func (fc *FirewallCollector) SyncFirewallRules(ctx context.Context, apiRulesJSON
 	apiRules := response.Firewall.Rules
 	fc.logger.Infof("Found %d API rules", len(apiRules))
 
-	// Get current UFW rules
-	currentRules, err := fc.GetCurrentUFWRules(ctx)
+	// When the ufw setting cannot be read, assume IPv6 is on: at worst an
+	// "any" rule is re-added every cycle (ufw skips what it already has),
+	// whereas assuming it off would delete the IPv6 half of every "any" rule.
+	ipv6On, err := fc.ipv6Enabled()
+	if err != nil {
+		fc.logger.Warnf("Could not read the ufw IPv6 setting, assuming IPv6 is enabled: %v", err)
+		ipv6On = true
+	}
+
+	currentRules, err := fc.currentTableRules(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get current UFW rules: %w", err)
 	}
 	fc.logger.Infof("Found %d current UFW rules", len(currentRules))
 
-	// Convert to string sets for comparison
-	currentRuleStrings := fc.rulesToStringSet(currentRules)
-	apiRuleStrings := fc.rulesToStringSet(apiRules)
-
-	// Find rules to add and remove
-	rulesToAdd := fc.findRulesToAdd(currentRuleStrings, apiRuleStrings, apiRules)
-	rulesToRemove := fc.findRulesToRemove(currentRuleStrings, apiRuleStrings, currentRules)
+	rulesToAdd, rulesToRemove := fc.planSync(apiRules, currentRules, ipv6On)
 
 	fc.logger.Infof("Rules to add: %d", len(rulesToAdd))
 	fc.logger.Infof("Rules to remove: %d", len(rulesToRemove))
@@ -251,49 +474,6 @@ func (fc *FirewallCollector) SyncFirewallRules(ctx context.Context, apiRulesJSON
 	}
 
 	return nil
-}
-
-// rulesToStringSet converts rules to a set of normalized strings
-func (fc *FirewallCollector) rulesToStringSet(rules []FirewallRule) map[string]FirewallRule {
-	ruleSet := make(map[string]FirewallRule)
-	for _, rule := range rules {
-		key := rule.String()
-		if !fc.caseSensitive {
-			key = strings.ToLower(key)
-		}
-		ruleSet[key] = rule
-	}
-	return ruleSet
-}
-
-// findRulesToAdd finds rules that exist in API but not in current UFW
-func (fc *FirewallCollector) findRulesToAdd(currentSet, apiSet map[string]FirewallRule, apiRules []FirewallRule) []FirewallRule {
-	var rulesToAdd []FirewallRule
-	for _, rule := range apiRules {
-		key := rule.String()
-		if !fc.caseSensitive {
-			key = strings.ToLower(key)
-		}
-		if _, exists := currentSet[key]; !exists {
-			rulesToAdd = append(rulesToAdd, rule)
-		}
-	}
-	return rulesToAdd
-}
-
-// findRulesToRemove finds rules that exist in current UFW but not in API
-func (fc *FirewallCollector) findRulesToRemove(currentSet, apiSet map[string]FirewallRule, currentRules []FirewallRule) []FirewallRule {
-	var rulesToRemove []FirewallRule
-	for _, rule := range currentRules {
-		key := rule.String()
-		if !fc.caseSensitive {
-			key = strings.ToLower(key)
-		}
-		if _, exists := apiSet[key]; !exists {
-			rulesToRemove = append(rulesToRemove, rule)
-		}
-	}
-	return rulesToRemove
 }
 
 // addUFWRule adds a single UFW rule
