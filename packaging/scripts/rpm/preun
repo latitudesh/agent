@@ -1,0 +1,17 @@
+#!/bin/sh
+# RPM %preun. $1 is the number of lsh-agent packages left once this one is
+# removed: 0 on removal, 1 or more on an upgrade.
+set -e
+
+UNIT=lsh-agent.service
+
+# Stop and disable only on removal. On upgrade the agent keeps running and the
+# new package's %post restarts it onto the new binary.
+if [ "$1" -eq 0 ]; then
+    if [ -d /run/systemd/system ]; then
+        systemctl stop "$UNIT" >/dev/null 2>&1 || true
+    fi
+    systemctl disable "$UNIT" >/dev/null 2>&1 || true
+fi
+
+exit 0

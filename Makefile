@@ -57,7 +57,7 @@ test:
 .PHONY: test-shell
 test-shell:
 	shellcheck --severity=warning install.sh uninstall.sh scripts/*.sh tests/lib/*.bash
-	shellcheck --severity=warning --shell=sh packaging/scripts/*
+	shellcheck --severity=warning --shell=sh packaging/scripts/postinst packaging/scripts/prerm packaging/scripts/postrm packaging/scripts/rpm/*
 	shellcheck --severity=warning --shell=bash tests/*.bats
 	bats tests/
 

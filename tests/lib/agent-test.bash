@@ -16,6 +16,9 @@ INSTALL_SH="$REPO_ROOT/install.sh"
 UNINSTALL_SH="$REPO_ROOT/uninstall.sh"
 POSTINST="$REPO_ROOT/packaging/scripts/postinst"
 POSTRM="$REPO_ROOT/packaging/scripts/postrm"
+RPM_POST="$REPO_ROOT/packaging/scripts/rpm/post"
+RPM_PREUN="$REPO_ROOT/packaging/scripts/rpm/preun"
+RPM_POSTUN="$REPO_ROOT/packaging/scripts/rpm/postun"
 
 # Per-test scratch: $ROOT is a fake filesystem root, $STUB_BIN holds stub
 # commands, $CALLS logs every stub invocation ("name args...", one per line).

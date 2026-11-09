@@ -123,7 +123,7 @@ See [TESTING.md](TESTING.md) for detailed testing instructions.
 
 Every merge into `main` updates a draft of the next release ([Release Drafter](https://github.com/release-drafter/release-drafter)): merged PRs grouped by type, and the next version resolved from their labels. The labels come from the conventional-commit PR titles: `feat` bumps the minor, `!` (e.g. `feat!:`) the major, and everything else the patch.
 
-To release, open the draft under **Releases**, review it and publish it. Publishing creates the `vX.Y.Z` tag, and the `release` workflow then builds the binaries and `.deb` packages with GoReleaser, attaches them to the release, and redeploys the apt repository at `https://packages.lsh.io/apt` with the packages of every published release. Pre-release tags (e.g. `v1.2.0-rc.1`) get artifacts but are not added to the repository.
+To release, open the draft under **Releases**, review it and publish it. Publishing creates the `vX.Y.Z` tag, and the `release` workflow then builds the binaries and the `.deb` and `.rpm` packages with GoReleaser, attaches them to the release, and redeploys the apt repository at `https://packages.lsh.io/apt` with the packages of every published release. Pre-release tags (e.g. `v1.2.0-rc.1`) get artifacts but are not added to the repository.
 
 The workflow needs:
 
@@ -136,7 +136,7 @@ To redeploy the repository without a release (e.g. after rotating the key), run 
 
 ### Verifying a release
 
-Each `.deb` ships with an SPDX SBOM (`<package>.deb.sbom.json`) and a signed build provenance attestation, both produced by the `release` workflow. To check that a package was built from this repository by that workflow:
+Each `.deb` and `.rpm` ships with an SPDX SBOM (`<package file>.sbom.json`) and a signed build provenance attestation, both produced by the `release` workflow. To check that a package was built from this repository by that workflow:
 
 ```bash
 gh attestation verify lsh-agent_<version>_amd64.deb -R latitudesh/agent

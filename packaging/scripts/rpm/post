@@ -1,0 +1,56 @@
+#!/bin/sh
+# RPM %post. $1 is the number of lsh-agent packages installed once this one
+# is: 1 on a first install, 2 or more on an upgrade. Mirrors the .deb postinst
+# (packaging/scripts/postinst), minus its Debian-only netfilter-persistent step.
+set -e
+
+UNIT=lsh-agent.service
+
+# Hand hosts set up by install.sh over to the package. Before the package
+# existed, install.sh wrote its own unit to /etc/systemd/system, which shadows
+# the packaged one in /usr/lib/systemd/system and keeps running the
+# source-built binary from /usr/local/bin — the package would install fine and
+# never run. Kept identical to the .deb postinst (tests/rpm-scripts.bats).
+migrate_from_install_sh() {
+    legacy_unit=/etc/systemd/system/$UNIT
+    if [ -f "$legacy_unit" ] && grep -q '^ExecStart=/usr/local/bin/lsh-agent ' "$legacy_unit"; then
+        echo "Migrating lsh-agent from install.sh to the package..."
+        rm -f "$legacy_unit"
+        # `systemctl enable` linked the legacy unit by its /etc path. With the
+        # file gone that link dangles and the agent would not start at boot;
+        # the enable below recreates it for the packaged unit.
+        wants=/etc/systemd/system/multi-user.target.wants/$UNIT
+        if [ -L "$wants" ] && [ "$(readlink "$wants")" = "$legacy_unit" ]; then
+            rm -f "$wants"
+        fi
+    fi
+
+    # Keep /usr/local/bin/lsh-agent working for anything that still calls it
+    # or checks for it (e.g. an Ansible `creates:`), now as the packaged binary.
+    if [ -f /usr/local/bin/lsh-agent ] && [ ! -L /usr/local/bin/lsh-agent ]; then
+        ln -sf /usr/bin/lsh-agent /usr/local/bin/lsh-agent
+    fi
+}
+
+migrate_from_install_sh
+
+# Enable on first install, like the .deb. RHEL presets leave units a package
+# does not list disabled, so %systemd_post alone would not. On upgrades the
+# admin's choice (enabled or disabled) is kept. Works without a running
+# systemd: enable only writes the symlinks.
+if [ "$1" -eq 1 ]; then
+    systemctl enable "$UNIT" >/dev/null 2>&1 || true
+fi
+
+if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    # restart, not start: upgrades and install.sh migrations must swap the
+    # binary that is already running. Like deb-systemd-invoke, leave a unit
+    # the admin disabled alone. Until /etc/lsh-agent/env exists the unit's
+    # ConditionPathExists keeps this a no-op.
+    if systemctl is-enabled --quiet "$UNIT" 2>/dev/null; then
+        systemctl restart "$UNIT" >/dev/null 2>&1 || true
+    fi
+fi
+
+exit 0

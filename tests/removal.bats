@@ -75,16 +75,22 @@ postrm() {
   assert_lacks_code_re "$UNINSTALL_SH" 'lsh-agent-netfilter-restore'
 }
 
-@test "uninstall stops before deleting files or resetting UFW when apt purge fails" {
-  purge_fail_exit=$(grep -n 'could not remove the lsh-agent package' "$UNINSTALL_SH" | cut -d: -f1)
+@test "uninstall stops before deleting files or resetting UFW when apt purge or dnf remove fails" {
   first_rm=$(grep -n '^rm -f /etc/systemd/system/lsh-agent.service' "$UNINSTALL_SH" | cut -d: -f1)
   first_reset=$(grep -n 'ufw --force reset' "$UNINSTALL_SH" | cut -d: -f1)
-  [ -n "$purge_fail_exit" ]
   [ -n "$first_rm" ]
   [ -n "$first_reset" ]
-  [ "$purge_fail_exit" -lt "$first_rm" ]
-  [ "$purge_fail_exit" -lt "$first_reset" ]
-  sed -n "${purge_fail_exit},$((purge_fail_exit + 1))p" "$UNINSTALL_SH" | grep -q 'exit 1'
+  # One failure exit per package manager (apt, dnf).
+  [ "$(grep -c 'could not remove the lsh-agent package' "$UNINSTALL_SH")" -eq 2 ]
+  for fail_exit in $(grep -n 'could not remove the lsh-agent package' "$UNINSTALL_SH" | cut -d: -f1); do
+    [ "$fail_exit" -lt "$first_rm" ]
+    [ "$fail_exit" -lt "$first_reset" ]
+    sed -n "${fail_exit},$((fail_exit + 1))p" "$UNINSTALL_SH" | grep -q 'exit 1'
+  done
+}
+
+@test "uninstall keeps ufw installed on the RHEL family (no dependency clean-up)" {
+  assert_contains "$UNINSTALL_SH" 'dnf -y --setopt=clean_requirements_on_remove=False remove lsh-agent'
 }
 
 @test "uninstall refuses to run without /etc/lsh-agent/env" {

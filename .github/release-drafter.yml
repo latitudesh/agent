@@ -83,7 +83,7 @@ template: |
   sudo apt-get update && sudo apt-get install -y lsh-agent=$RESOLVED_VERSION
   ```
 
-  The `.deb` packages (amd64 and arm64) are also attached to this release.
+  The `.deb` and `.rpm` packages (amd64 and arm64) are also attached to this release.
 
   ## Contributors
 
