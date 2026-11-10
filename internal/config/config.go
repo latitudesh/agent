@@ -49,7 +49,7 @@ type LoggingConfig struct {
 // LoadConfig loads configuration from file and environment variables
 func LoadConfig(configPath string) (*Config, error) {
 	config := &Config{}
-	
+
 	// Set defaults
 	config.Agent.Interval = "30s"
 	config.Agent.LogLevel = "info"
@@ -97,9 +97,19 @@ func loadFromYAML(config *Config, configPath string) error {
 	return yaml.Unmarshal(data, config)
 }
 
+// legacyEnvFile is the KEY=value file install.sh writes.
+const legacyEnvFile = "/etc/lsh-agent/env"
+
 // loadFromLegacyEnv loads configuration from legacy /etc/lsh-agent/env file
 func loadFromLegacyEnv(config *Config) error {
-	envFile := "/etc/lsh-agent/env"
+	return loadFromLegacyEnvFile(config, legacyEnvFile)
+}
+
+// loadFromLegacyEnvFile reads a KEY=value env file. A key the agent uses may
+// appear only once: install.sh writes each one once, so a repeated key means
+// the file was edited or built from unvalidated input, and silently letting
+// the last line win could switch the firewall the agent applies.
+func loadFromLegacyEnvFile(config *Config, envFile string) error {
 	if _, err := os.Stat(envFile); os.IsNotExist(err) {
 		return nil // File doesn't exist, skip
 	}
@@ -109,6 +119,7 @@ func loadFromLegacyEnv(config *Config) error {
 		return err
 	}
 
+	seen := make(map[string]bool)
 	lines := strings.Split(string(data), "\n")
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
@@ -123,6 +134,14 @@ func loadFromLegacyEnv(config *Config) error {
 
 		key := strings.TrimSpace(parts[0])
 		value := strings.Trim(strings.TrimSpace(parts[1]), `"'`)
+
+		switch key {
+		case "PROJECT_ID", "FIREWALL_ID", "PUBLIC_IP":
+			if seen[key] {
+				return fmt.Errorf("%s: %s is set more than once", envFile, key)
+			}
+			seen[key] = true
+		}
 
 		switch key {
 		case "PROJECT_ID":
@@ -176,6 +195,12 @@ func validateConfig(config *Config) error {
 	if config.Latitude.FirewallID == "" {
 		return fmt.Errorf("FIREWALL_ID is required")
 	}
+	if !validID(config.Latitude.ProjectID) {
+		return fmt.Errorf("PROJECT_ID %q may only contain letters, digits, '.', '_' and '-'", config.Latitude.ProjectID)
+	}
+	if !validID(config.Latitude.FirewallID) {
+		return fmt.Errorf("FIREWALL_ID %q may only contain letters, digits, '.', '_' and '-'", config.Latitude.FirewallID)
+	}
 	// Bearer token is optional since /ping API is unauthenticated
 
 	// Validate UFW binary exists
@@ -186,6 +211,23 @@ func validateConfig(config *Config) error {
 	}
 
 	return nil
+}
+
+// validID reports whether a firewall or project ID has the shape the dashboard
+// issues (e.g. fw_..., proj_...): letters, digits, '.', '_' and '-', 1-128
+// characters. install.sh enforces the same rule.
+func validID(id string) bool {
+	if id == "" || len(id) > 128 {
+		return false
+	}
+	for _, c := range id {
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9', c == '.', c == '_', c == '-':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // DefaultConfigPath returns the default configuration file path

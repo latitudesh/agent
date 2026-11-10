@@ -7,6 +7,40 @@ usage() {
     exit 1
 }
 
+# valid_id <value>: a firewall or project ID as the dashboard issues them
+# (e.g. fw_..., proj_...): letters, digits, '.', '_' and '-', 1-128 chars.
+# These values end up in /etc/lsh-agent/env, so nothing else is allowed in.
+valid_id() {
+    [[ ${#1} -le 128 && "$1" =~ ^[A-Za-z0-9._-]+$ ]]
+}
+
+# valid_ip <value>: an IPv4 address in dotted form, or an IPv6 address (hex
+# groups and colons, optionally ending in an IPv4 part).
+valid_ip() {
+    local octet
+    if [[ "$1" =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$ ]]; then
+        for octet in "${BASH_REMATCH[@]:1}"; do
+            [ "$((10#$octet))" -le 255 ] || return 1
+        done
+        return 0
+    fi
+    [[ "$1" == *:* && ${#1} -le 45 && "$1" =~ ^[0-9A-Fa-f:.]+$ ]]
+}
+
+# write_env_file <path>: write the IDs as plain KEY=value lines. The file is
+# data: uninstall.sh and the agent read it, nothing executes it. Written to a
+# temporary file and renamed, so a reader never sees a partial file.
+write_env_file() {
+    (
+        umask 022
+        printf '%s=%s\n' \
+            FIREWALL_ID "$FIREWALL_ID" \
+            PROJECT_ID "$PROJECT_ID" \
+            PUBLIC_IP "$PUBLIC_IP" > "$1.tmp"
+    )
+    mv -f "$1.tmp" "$1"
+}
+
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     key="$1"
@@ -49,6 +83,16 @@ done
 if [ -z "$FIREWALL_ID" ] || [ -z "$PROJECT_ID" ]; then
     echo "Error: Both Firewall ID and Project ID are required."
     usage
+fi
+
+# Validate the IDs and the public IP before anything is written.
+if ! valid_id "$FIREWALL_ID" || ! valid_id "$PROJECT_ID"; then
+    echo "Error: Firewall ID and Project ID may only contain letters, digits, '.', '_' and '-'."
+    exit 1
+fi
+if [ -n "$PUBLIC_IP" ] && ! valid_ip "$PUBLIC_IP"; then
+    echo "Error: -public_ip must be an IPv4 or IPv6 address."
+    exit 1
 fi
 
 # Check if running as root
@@ -365,12 +409,14 @@ fi
 # Get public IP address if PUBLIC_IP was not provided
 if [ -z "$PUBLIC_IP" ]; then
     PUBLIC_IP=$(hostname -I | awk '{print $1}')
+    if [ -n "$PUBLIC_IP" ] && ! valid_ip "$PUBLIC_IP"; then
+        echo "Warning: could not detect a valid public IP ($PUBLIC_IP); leaving PUBLIC_IP empty."
+        PUBLIC_IP=""
+    fi
 fi
 
 # Create environment file for Go agent (backward compatibility)
-echo "FIREWALL_ID=$FIREWALL_ID" > /etc/lsh-agent/env
-echo "PROJECT_ID=$PROJECT_ID" >> /etc/lsh-agent/env
-echo "PUBLIC_IP=$PUBLIC_IP" >> /etc/lsh-agent/env
+write_env_file /etc/lsh-agent/env
 
 # Note: LATITUDESH_AUTH_TOKEN token will be set via systemctl edit command after installation
 
