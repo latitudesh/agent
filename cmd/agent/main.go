@@ -54,13 +54,11 @@ func main() {
 
 	log.LogAgentStart(Version, *configPath)
 
-	// Create context for graceful shutdown
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Set up signal handling
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	// SIGINT/SIGTERM cancel ctx, which aborts an API request in flight: a
+	// stalled call would otherwise hold `systemctl stop` until the request
+	// timeout, once for the health check and again for the first cycle.
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
 	// Initialize Latitude.sh API client
 	latitudeClient := client.NewLatitudeClient(
@@ -101,7 +99,7 @@ func main() {
 	defer ticker.Stop()
 
 	// Run immediately on startup
-	if err := runCollection(ctx, latitudeClient, firewallCollector, cfg, log); err != nil {
+	if err := runCollection(ctx, latitudeClient, firewallCollector, cfg, log); err != nil && ctx.Err() == nil {
 		log.WithError(err).Error("Initial collection failed")
 	}
 
@@ -109,14 +107,10 @@ func main() {
 	for {
 		select {
 		case <-ctx.Done():
-			log.LogAgentStop("context cancelled")
-			return
-		case sig := <-sigChan:
-			log.LogAgentStop(fmt.Sprintf("received signal: %s", sig))
-			cancel()
+			log.LogAgentStop("received shutdown signal")
 			return
 		case <-ticker.C:
-			if err := runCollection(ctx, latitudeClient, firewallCollector, cfg, log); err != nil {
+			if err := runCollection(ctx, latitudeClient, firewallCollector, cfg, log); err != nil && ctx.Err() == nil {
 				log.WithError(err).Error("Collection cycle failed")
 				// Continue running despite errors
 			}
@@ -155,8 +149,15 @@ func runCollection(ctx context.Context, latitudeClient *client.LatitudeClient, f
 		}
 	}
 
-	// Synchronize firewall rules if firewall collector is enabled
+	// Synchronize firewall rules if firewall collector is enabled. Once rules
+	// are being applied, a shutdown signal does not cancel the ufw commands:
+	// each is short, and killing one mid-change could leave the host with half
+	// of a rule set. A cycle that was signalled before this point stops here.
 	if firewallCollector != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		ctx := context.WithoutCancel(ctx)
 		collectorStart := time.Now()
 		err := firewallCollector.SyncFirewallRules(ctx, rulesJSON)
 		duration := time.Since(collectorStart)
