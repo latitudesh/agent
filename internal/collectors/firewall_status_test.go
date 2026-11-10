@@ -132,7 +132,7 @@ func TestExecRunner_UsesCLocale(t *testing.T) {
 	if err != nil {
 		t.Fatalf("execRunner: %v", err)
 	}
-	if string(out) != "C C" {
-		t.Errorf("LC_ALL LANGUAGE = %q, want %q", out, "C C")
+	if want := "C.UTF-8 C"; string(out) != want {
+		t.Errorf("LC_ALL LANGUAGE = %q, want %q", out, want)
 	}
 }

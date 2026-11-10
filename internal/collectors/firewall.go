@@ -191,8 +191,10 @@ func execRunner(ctx context.Context, name string, args ...string) ([]byte, error
 	cmd := exec.CommandContext(ctx, name, args...)
 	// The last entry wins, overriding what the agent inherited. LANGUAGE is
 	// needed too: ufw is Python, and Python's gettext reads LANGUAGE before
-	// LC_ALL, so LC_ALL=C alone still leaves ufw translated.
-	cmd.Env = append(os.Environ(), "LC_ALL=C", "LANGUAGE=C")
+	// LC_ALL, so LC_ALL alone still leaves ufw translated. C.UTF-8 rather than
+	// C keeps a non-ASCII rule comment printable on Python 3.6 (EL8), where a
+	// C locale makes stdout ASCII; without C.UTF-8 libc falls back to C.
+	cmd.Env = append(os.Environ(), "LC_ALL=C.UTF-8", "LANGUAGE=C")
 	return cmd.CombinedOutput()
 }
 
