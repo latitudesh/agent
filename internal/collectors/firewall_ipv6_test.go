@@ -340,6 +340,26 @@ func TestSyncFirewallRules_ConvergesPerTable(t *testing.T) {
 			ipv6Off: true,
 			api:     `{"from":"::/0","to":"any","protocol":"tcp","port":"9001"}`,
 		},
+		{
+			name:         "multiport is added in ufw's order",
+			api:          `{"from":"any","to":"any","protocol":"tcp","port":"443, 80"}`,
+			wantV4:       []string{"any|any|tcp|80,443"},
+			wantV6:       []string{"any|any|tcp|80,443"},
+			wantCommands: []string{"ufw allow proto tcp from any to any port 80,443"},
+		},
+		{
+			name:         "multiport removed from the dashboard is deleted",
+			v4:           []string{"any|any|tcp|80,443"},
+			v6:           []string{"any|any|tcp|80,443"},
+			api:          ``,
+			wantCommands: []string{"ufw delete allow from any to any port 80,443 proto tcp"},
+		},
+		{
+			name:   "multiport with a range to a host is in place",
+			v4:     []string{"10.0.0.0/8|203.0.113.5|udp|8000:8010,9000"},
+			api:    `{"from":"10.0.0.0/8","to":"203.0.113.5","protocol":"UDP","port":"9000,8000:8010"}`,
+			wantV4: []string{"10.0.0.0/8|203.0.113.5|udp|8000:8010,9000"},
+		},
 	}
 
 	for _, tc := range cases {

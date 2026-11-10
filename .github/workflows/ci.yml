@@ -33,10 +33,20 @@ jobs:
       - run: go test ./...
       # Report only for now: a finding shows as a warning on the run without
       # failing the PR. Make it blocking once the baseline is clean.
+      # govulncheck exits 3 when it finds a vulnerability; any other non-zero
+      # exit means the scan itself failed (e.g. a govulncheck too old for the
+      # stable Go toolchain), which must fail the job instead of passing as a
+      # warning. `go run` would turn every exit code into 1, so install it.
       - name: govulncheck (report only)
         run: |
-          go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./... ||
-            echo "::warning title=govulncheck::govulncheck reported vulnerabilities, see the step log"
+          go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+          rc=0
+          "$(go env GOPATH)/bin/govulncheck" ./... || rc=$?
+          case $rc in
+            0) ;;
+            3) echo "::warning title=govulncheck::govulncheck reported vulnerabilities, see the step log" ;;
+            *) echo "::error title=govulncheck::govulncheck failed to run (exit $rc), see the step log"; exit "$rc" ;;
+          esac
       - name: ShellCheck
         run: |
           shellcheck --severity=warning install.sh uninstall.sh scripts/*.sh tests/lib/*.bash
