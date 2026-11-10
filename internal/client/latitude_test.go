@@ -159,22 +159,34 @@ func TestPingAndGetFirewallRules_StalledAPITimesOut(t *testing.T) {
 }
 
 func TestPingAndGetFirewallRules_ConnectsOverIPv4Only(t *testing.T) {
-	ln, err := net.Listen("tcp6", "[::1]:0")
-	if err != nil {
-		t.Skipf("IPv6 loopback unavailable: %v", err)
+	cases := []struct {
+		network, addr string
+		wantErr       bool
+	}{
+		{"tcp4", "127.0.0.1:0", false},
+		{"tcp6", "[::1]:0", true},
 	}
-	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"firewall":{}}`))
-	}))
-	srv.Listener = ln
-	srv.Start()
-	defer srv.Close()
+	for _, tc := range cases {
+		t.Run(tc.network, func(t *testing.T) {
+			ln, err := net.Listen(tc.network, tc.addr)
+			if err != nil {
+				t.Skipf("%s loopback unavailable: %v", tc.network, err)
+			}
+			srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(`{"firewall":{}}`))
+			}))
+			srv.Listener = ln
+			srv.Start()
+			defer srv.Close()
 
-	logger := logrus.New()
-	logger.SetOutput(nopWriter{})
-	lc := NewLatitudeClient("", srv.URL, "proj_me", "fw_me", "203.0.113.10", logger)
+			logger := logrus.New()
+			logger.SetOutput(nopWriter{})
+			lc := NewLatitudeClient("", srv.URL, "proj_me", "fw_me", "203.0.113.10", logger)
 
-	if _, err := lc.PingAndGetFirewallRules(context.Background()); err == nil {
-		t.Fatal("expected the IPv4-only client to fail against an IPv6-only API")
+			_, err = lc.PingAndGetFirewallRules(context.Background())
+			if gotErr := err != nil; gotErr != tc.wantErr {
+				t.Fatalf("PingAndGetFirewallRules over %s: err = %v, want error = %v", tc.network, err, tc.wantErr)
+			}
+		})
 	}
 }
