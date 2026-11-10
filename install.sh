@@ -14,17 +14,44 @@ valid_id() {
     [[ ${#1} -le 128 && "$1" =~ ^[A-Za-z0-9._-]+$ ]]
 }
 
-# valid_ip <value>: an IPv4 address in dotted form, or an IPv6 address (hex
-# groups and colons, optionally ending in an IPv4 part).
-valid_ip() {
+# valid_ipv4 <value>: an IPv4 address in dotted form, each octet 0-255.
+valid_ipv4() {
     local octet
-    if [[ "$1" =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$ ]]; then
-        for octet in "${BASH_REMATCH[@]:1}"; do
-            [ "$((10#$octet))" -le 255 ] || return 1
-        done
-        return 0
+    [[ "$1" =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$ ]] || return 1
+    for octet in "${BASH_REMATCH[@]:1}"; do
+        [ "$((10#$octet))" -le 255 ] || return 1
+    done
+}
+
+# valid_ip <value>: an IPv4 address, or an IPv6 address: up to eight groups
+# of 1-4 hex digits, at most one "::" standing for the missing groups, and
+# optionally an IPv4 address as the last two groups (::ffff:192.0.2.1).
+valid_ip() {
+    local ip="$1" max=8 group count=0 groups
+    valid_ipv4 "$ip" && return 0
+    [[ "$ip" == *:* && ${#ip} -le 45 && "$ip" =~ ^[0-9A-Fa-f:.]+$ ]] || return 1
+    [[ "$ip" == *:::* ]] && return 1
+    local rest="${ip/::/}"
+    [[ "$rest" == *::* ]] && return 1
+    if [[ "$ip" == *.* ]]; then
+        valid_ipv4 "${ip##*:}" || return 1
+        # The IPv4 part fills two groups; count it as one placeholder.
+        ip="${ip%:*}:0"
+        max=7
     fi
-    [[ "$1" == *:* && ${#1} -le 45 && "$1" =~ ^[0-9A-Fa-f:.]+$ ]]
+    # A lone ':' may only start or end the address as part of "::".
+    [[ "$ip" =~ ^:[^:] || "$ip" =~ [^:]:$ ]] && return 1
+    IFS=: read -ra groups <<< "$ip"
+    for group in "${groups[@]}"; do
+        [ -z "$group" ] && continue
+        [[ "$group" =~ ^[0-9A-Fa-f]{1,4}$ ]] || return 1
+        count=$((count + 1))
+    done
+    if [[ "$ip" == *::* ]]; then
+        [ "$count" -lt "$max" ]
+    else
+        [ "$count" -eq "$max" ]
+    fi
 }
 
 # write_env_file <path>: write the IDs as plain KEY=value lines. The file is

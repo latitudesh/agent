@@ -100,3 +100,17 @@ setup() {
   assert_lacks_code_re "$INSTALL_SH" 'echo .*>>? */etc/lsh-agent/env'
   assert_contains "$INSTALL_SH" 'write_env_file /etc/lsh-agent/env'
 }
+
+@test "valid_ip checks the structure of IPv6 addresses" {
+  eval "$(extract_fn "$INSTALL_SH" valid_ipv4 valid_ip)"
+  local ip
+  for ip in 203.0.113.5 0.0.0.0 :: ::1 1:: 2001:db8::1 1:2:3:4:5:6:7:8 fe80::1:2 \
+            ::ffff:192.0.2.1 64:ff9b::198.51.100.7 1:2:3:4:5:6:192.0.2.1 2001:DB8:0:0:0:0:0:1; do
+    valid_ip "$ip" || { echo "rejected valid $ip"; return 1; }
+  done
+  for ip in : ::: 2001:::1 1::2::3 :1:2:3:4:5:6:7:8 1:2:3:4:5:6:7:8: 1:2:3:4:5:6:7 \
+            1:2:3:4:5:6:7:8:9 12345::1 g::1 1:2:3:4:5:6:7:192.0.2.1 ::ffff:256.0.0.1 \
+            ::ffff:1.2.3 1.2.3.4:: 2001:db8::1.2.3.4.5 256.1.1.1 1.2.3 .; do
+    if valid_ip "$ip"; then echo "accepted invalid $ip"; return 1; fi
+  done
+}
