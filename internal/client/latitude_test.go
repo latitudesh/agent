@@ -175,6 +175,7 @@ func TestPingAndGetFirewallRules_ConnectsOverIPv4Only(t *testing.T) {
 			srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				_, _ = w.Write([]byte(`{"firewall":{}}`))
 			}))
+			_ = srv.Listener.Close()
 			srv.Listener = ln
 			srv.Start()
 			defer srv.Close()
