@@ -164,13 +164,17 @@ func runCollection(ctx context.Context, latitudeClient *client.LatitudeClient, f
 			return fmt.Errorf("firewall synchronization failed: %w", err)
 		}
 
-		// Display final UFW status
-		status, err := firewallCollector.GetFirewallStatus(ctx)
-		if err != nil {
-			log.WithError(err).Warn("Failed to get final UFW status")
-		} else {
-			log.Info("Final UFW status:")
-			log.Info(status)
+		// Display final UFW status, unless a shutdown arrived during the sync:
+		// it is only informational, and with ctx cancelled it would just log
+		// a failure for a sync that succeeded.
+		if ctx.Err() == nil {
+			status, err := firewallCollector.GetFirewallStatus(ctx)
+			if err != nil {
+				log.WithError(err).Warn("Failed to get final UFW status")
+			} else {
+				log.Info("Final UFW status:")
+				log.Info(status)
+			}
 		}
 	}
 

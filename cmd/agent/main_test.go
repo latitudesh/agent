@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -22,7 +23,7 @@ const runAsAgentEnv = "LSH_AGENT_TEST_RUN_MAIN"
 
 func TestMain(m *testing.M) {
 	if os.Getenv(runAsAgentEnv) == "1" {
-		os.Args = append([]string{"lsh-agent"}, strings.Fields(os.Getenv("LSH_AGENT_TEST_ARGS"))...)
+		os.Args[0] = "lsh-agent"
 		main()
 		os.Exit(0)
 	}
@@ -39,14 +40,32 @@ func agentCommand(t *testing.T, apiURL string, args ...string) (*exec.Cmd, *byte
 		t.Fatal(err)
 	}
 
-	cmd := exec.Command(os.Args[0])
-	cmd.Env = append(os.Environ(),
-		runAsAgentEnv+"=1",
-		"LSH_AGENT_TEST_ARGS="+strings.Join(append([]string{"-config", cfgPath}, args...), " "),
-	)
+	// Arguments go to the child as they are: main() parses os.Args itself.
+	cmd := exec.Command(os.Args[0], append([]string{"-config", cfgPath}, args...)...)
+	cmd.Env = append(withoutAgentEnv(os.Environ()), runAsAgentEnv+"=1")
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
 	return cmd, &out
+}
+
+// agentEnvVars are the variables config.LoadConfig reads. They override the
+// config file, so the child must not inherit them from whoever runs the tests
+// (FIREWALL_ENABLED=true would make it look for ufw). A test sets its own
+// after this, and the last entry wins.
+var agentEnvVars = []string{
+	"LATITUDESH_AUTH_TOKEN", "PROJECT_ID", "FIREWALL_ID", "PUBLIC_IP",
+	"AGENT_INTERVAL", "LOG_LEVEL", "UFW_BINARY", "FIREWALL_ENABLED",
+}
+
+func withoutAgentEnv(env []string) []string {
+	var kept []string
+	for _, kv := range env {
+		name, _, _ := strings.Cut(kv, "=")
+		if !slices.Contains(agentEnvVars, name) {
+			kept = append(kept, kv)
+		}
+	}
+	return kept
 }
 
 // TestAgent_StopsOnSIGTERMDuringStalledRequest starts the agent against an API
