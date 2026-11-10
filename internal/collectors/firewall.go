@@ -3,6 +3,7 @@ package collectors
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/netip"
 	"os"
@@ -183,8 +184,18 @@ type FirewallResponse struct {
 // commands a sync issues (e.g. to assert that no `ufw reload` is run).
 type commandRunner func(ctx context.Context, name string, args ...string) ([]byte, error)
 
+// execRunner runs the command in the C locale. ufw translates its output
+// ("Estado: inativo" for "Status: inactive" under pt_BR) and the sync parses
+// the English text, so on a translated host it would read no rule at all.
 func execRunner(ctx context.Context, name string, args ...string) ([]byte, error) {
-	return exec.CommandContext(ctx, name, args...).CombinedOutput()
+	cmd := exec.CommandContext(ctx, name, args...)
+	// The last entry wins, overriding what the agent inherited. LANGUAGE is
+	// needed too: ufw is Python, and Python's gettext reads LANGUAGE before
+	// LC_ALL, so LC_ALL alone still leaves ufw translated. C.UTF-8 rather than
+	// C keeps a non-ASCII rule comment printable on Python 3.6 (EL8), where a
+	// C locale makes stdout ASCII; without C.UTF-8 libc falls back to C.
+	cmd.Env = append(os.Environ(), "LC_ALL=C.UTF-8", "LANGUAGE=C")
+	return cmd.CombinedOutput()
 }
 
 // FirewallCollector handles firewall rule collection and synchronization
@@ -257,11 +268,38 @@ func (fc *FirewallCollector) ufw(ctx context.Context, args ...string) ([]byte, e
 	return fc.run(ctx, name, cmdArgs...)
 }
 
-// currentTableRules reads the rules ufw has in place, per table.
+// ErrUFWInactive is returned by a sync while ufw is disabled. `ufw status` then
+// prints no rules, although ufw keeps them in its rules files, so syncing
+// against it would re-add every dashboard rule each cycle, report them as
+// applied while nothing is enforced, and never delete one.
+var ErrUFWInactive = errors.New("ufw is inactive, no rule is enforced on this host: skipping the sync until ufw is enabled (`ufw enable`)")
+
+// ufwState returns the value of the "Status:" line `ufw status` starts with
+// ("active" or "inactive"), or "" when the output has no such line.
+func ufwState(output string) string {
+	for _, line := range strings.Split(output, "\n") {
+		if state, ok := strings.CutPrefix(strings.TrimSpace(line), "Status:"); ok {
+			return strings.TrimSpace(state)
+		}
+	}
+	return ""
+}
+
+// currentTableRules reads the rules ufw has in place, per table. It refuses to
+// return a rule set it can't trust: an inactive ufw or an output without the
+// expected "Status: active" line would both read as a host with no rules.
 func (fc *FirewallCollector) currentTableRules(ctx context.Context) ([]tableRule, error) {
 	output, err := fc.ufw(ctx, "status")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get UFW status: %w", err)
+	}
+
+	switch state := ufwState(string(output)); state {
+	case "active":
+	case "inactive":
+		return nil, ErrUFWInactive
+	default:
+		return nil, fmt.Errorf("unexpected `ufw status` output (state %q), not syncing against it", state)
 	}
 
 	return fc.parseUFWRules(string(output))
@@ -279,6 +317,19 @@ func (fc *FirewallCollector) currentTableRules(ctx context.Context) ([]tableRule
 // The "(v6)" tags are stripped before matching.
 var ufwRuleRegex = regexp.MustCompile(`^(?:(\S+)\s+)?([0-9]+(?::[0-9]+)?(?:,[0-9]+(?::[0-9]+)?)*/[a-z]+)\s+ALLOW\s+(.+)$`)
 
+// stripUFWComment drops the comment ufw prints after a row's From column
+// ("8080/tcp  ALLOW  10.0.0.0/8  # vendor access"). Left in, it is read as part
+// of the source address, so the rule never matches the dashboard: it is
+// re-added each cycle (ufw rewrites it without its comment) and never deleted.
+// No column before the comment can hold a '#', and cutting first also keeps an
+// "ALLOW" or "(v6)" inside a comment from changing how the row is read.
+func stripUFWComment(line string) string {
+	if i := strings.IndexByte(line, '#'); i >= 0 {
+		return line[:i]
+	}
+	return line
+}
+
 // parseUFWRules parses `ufw status` output into the rules of each ufw table.
 // A row belongs to the IPv6 table when ufw tags it "(v6)" (it does so when an
 // address is ::/0, printed as "Anywhere (v6)") or when an address is IPv6.
@@ -286,7 +337,7 @@ func (fc *FirewallCollector) parseUFWRules(output string) ([]tableRule, error) {
 	var rules []tableRule
 
 	for _, line := range strings.Split(output, "\n") {
-		line = strings.TrimSpace(line)
+		line = strings.TrimSpace(stripUFWComment(line))
 		if !strings.Contains(line, "ALLOW") {
 			continue
 		}
