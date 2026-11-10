@@ -61,6 +61,7 @@ func TestValidateConfig_IDs(t *testing.T) {
 	}
 	for _, tc := range cases {
 		cfg := &Config{}
+		cfg.Agent.Interval = "30s"
 		cfg.Latitude.ProjectID = tc.project
 		cfg.Latitude.FirewallID = tc.firewall
 		err := validateConfig(cfg)

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -22,6 +23,8 @@ type Config struct {
 type AgentConfig struct {
 	Interval string `yaml:"interval" default:"30s"`
 	LogLevel string `yaml:"log_level" default:"info"`
+	// SyncInterval is Interval parsed, set by LoadConfig once it is valid.
+	SyncInterval time.Duration `yaml:"-"`
 }
 
 // LatitudeConfig contains Latitude.sh API configuration
@@ -189,6 +192,12 @@ func loadFromEnv(config *Config) {
 
 // validateConfig validates the loaded configuration
 func validateConfig(config *Config) error {
+	interval, err := parseInterval(config.Agent.Interval)
+	if err != nil {
+		return err
+	}
+	config.Agent.SyncInterval = interval
+
 	if config.Latitude.ProjectID == "" {
 		return fmt.Errorf("PROJECT_ID is required")
 	}
@@ -228,6 +237,25 @@ func validID(id string) bool {
 		}
 	}
 	return true
+}
+
+// minInterval is the shortest sync interval accepted. Each cycle calls the
+// API, so a missing or wrong unit ("30ms" for "30s") must not turn the agent
+// into a tight loop against it; zero or a negative value would also make
+// time.NewTicker panic.
+const minInterval = time.Second
+
+// parseInterval parses agent.interval / AGENT_INTERVAL, a Go duration such as
+// "30s" or "1m30s" of at least minInterval.
+func parseInterval(value string) (time.Duration, error) {
+	interval, err := time.ParseDuration(strings.TrimSpace(value))
+	if err != nil {
+		return 0, fmt.Errorf("invalid interval %q: use a duration with a unit, e.g. \"30s\" or \"5m\"", value)
+	}
+	if interval < minInterval {
+		return 0, fmt.Errorf("invalid interval %q: must be at least %s", value, minInterval)
+	}
+	return interval, nil
 }
 
 // DefaultConfigPath returns the default configuration file path

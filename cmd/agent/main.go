@@ -54,13 +54,12 @@ func main() {
 
 	log.LogAgentStart(Version, *configPath)
 
-	// Create context for graceful shutdown
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Set up signal handling
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	// SIGINT/SIGTERM cancel ctx, and with it the API request in flight. Waiting
+	// for a stalled request to time out instead (30s for the health check, 30s
+	// more for the first cycle) runs past systemd's stop timeout and the agent
+	// is SIGKILLed, so every restart or upgrade of the host waits ~90s.
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
 	// Initialize Latitude.sh API client
 	latitudeClient := client.NewLatitudeClient(
@@ -82,44 +81,36 @@ func main() {
 		)
 	}
 
-	// Perform initial health check
-	if err := latitudeClient.HealthCheck(ctx); err != nil {
+	// Perform initial health check; a failure is retried by the loop below.
+	if err := latitudeClient.HealthCheck(ctx); err != nil && ctx.Err() == nil {
 		log.WithError(err).Error("Initial health check failed")
-		// Don't exit immediately, allow retry in main loop
 	}
 
-	// Parse interval
-	interval, err := time.ParseDuration(cfg.Agent.Interval)
-	if err != nil {
-		log.Fatalf("Invalid interval %s: %v", cfg.Agent.Interval, err)
-	}
+	log.Infof("Starting agent with %s interval", cfg.Agent.SyncInterval)
 
-	log.Infof("Starting agent with %s interval", interval)
+	runLoop(ctx, cfg.Agent.SyncInterval, func(ctx context.Context) error {
+		return runCollection(ctx, latitudeClient, firewallCollector, cfg, log)
+	}, func(err error) {
+		log.WithError(err).Error("Collection cycle failed")
+	})
 
-	// Main execution loop
+	log.LogAgentStop("received shutdown signal")
+}
+
+// runLoop runs cycle right away and then on every tick, until ctx is
+// cancelled. Cancelling ctx interrupts the cycle in flight; the error that
+// causes is part of the shutdown, not a failed cycle, so it isn't reported.
+func runLoop(ctx context.Context, interval time.Duration, cycle func(context.Context) error, onError func(error)) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	// Run immediately on startup
-	if err := runCollection(ctx, latitudeClient, firewallCollector, cfg, log); err != nil {
-		log.WithError(err).Error("Initial collection failed")
-	}
-
-	// Main loop
-	for {
+	for ctx.Err() == nil {
+		if err := cycle(ctx); err != nil && ctx.Err() == nil {
+			onError(err)
+		}
 		select {
 		case <-ctx.Done():
-			log.LogAgentStop("context cancelled")
-			return
-		case sig := <-sigChan:
-			log.LogAgentStop(fmt.Sprintf("received signal: %s", sig))
-			cancel()
-			return
 		case <-ticker.C:
-			if err := runCollection(ctx, latitudeClient, firewallCollector, cfg, log); err != nil {
-				log.WithError(err).Error("Collection cycle failed")
-				// Continue running despite errors
-			}
 		}
 	}
 }
@@ -155,10 +146,16 @@ func runCollection(ctx context.Context, latitudeClient *client.LatitudeClient, f
 		}
 	}
 
-	// Synchronize firewall rules if firewall collector is enabled
+	// Synchronize firewall rules if firewall collector is enabled. A shutdown
+	// that arrived while the rules were fetched stops the cycle here; once the
+	// sync has started it runs to the end, since cancelling would kill a ufw
+	// command half way through and leave only part of the rule set applied.
 	if firewallCollector != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		collectorStart := time.Now()
-		err := firewallCollector.SyncFirewallRules(ctx, rulesJSON)
+		err := firewallCollector.SyncFirewallRules(context.WithoutCancel(ctx), rulesJSON)
 		duration := time.Since(collectorStart)
 
 		log.LogCollectorRun("firewall", duration.String(), err == nil, err)
