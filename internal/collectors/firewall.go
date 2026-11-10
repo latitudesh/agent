@@ -3,6 +3,7 @@ package collectors
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/netip"
 	"os"
@@ -233,11 +234,20 @@ func (fc *FirewallCollector) ufw(ctx context.Context, args ...string) ([]byte, e
 	return fc.run(ctx, name, cmdArgs...)
 }
 
+// errUFWInactive is returned when ufw's chains are not loaded. `ufw status`
+// then lists no rule at all, even though ufw keeps them in its rules files, so
+// a sync would re-add every dashboard rule on each cycle, report it as
+// applied, and never delete a rule the dashboard dropped.
+var errUFWInactive = errors.New("ufw is inactive, so no rule is enforced on this host; not syncing until it is enabled (ufw enable)")
+
 // currentTableRules reads the rules ufw has in place, per table.
 func (fc *FirewallCollector) currentTableRules(ctx context.Context) ([]tableRule, error) {
 	output, err := fc.ufw(ctx, "status")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get UFW status: %w", err)
+	}
+	if strings.TrimSpace(string(output)) == "Status: inactive" {
+		return nil, errUFWInactive
 	}
 
 	return fc.parseUFWRules(string(output))
