@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/sirupsen/logrus"
@@ -395,9 +396,77 @@ func ufwRules(entries []tableRule) []FirewallRule {
 
 // planSync compares the API rules with the rules in place, table by table, and
 // returns the ufw rules to add and to delete.
+//
+// The SSH rule is never removed unless the dashboard grants tcp/22 itself:
+// install.sh opens it with `ufw allow ssh` under a deny-incoming default, so
+// an empty rule set (a disabled firewall) or one without SSH would otherwise
+// delete it and leave the host reachable only through the console.
 func (fc *FirewallCollector) planSync(apiRules []FirewallRule, current []tableRule, ipv6On bool) (toAdd, toRemove []FirewallRule) {
 	desired := fc.desiredTableRules(apiRules, ipv6On)
-	return ufwRules(fc.diffTableRules(desired, current)), ufwRules(fc.diffTableRules(current, desired))
+	obsolete := fc.diffTableRules(current, desired)
+	if !anyAllowsSSH(desired) {
+		obsolete = fc.keepSSHRules(obsolete, "the dashboard rule set has no SSH rule")
+	}
+	return ufwRules(fc.diffTableRules(desired, current)), ufwRules(obsolete)
+}
+
+// sshPort is the port install.sh opens with `ufw allow ssh`.
+const sshPort = 22
+
+// allowsSSH reports whether a rule opens tcp/22: TCP (or any protocol) and a
+// port, range or port list that includes 22, or no port at all.
+func allowsSSH(r FirewallRule) bool {
+	n := r.normalized()
+	if n.Protocol != "tcp" && n.Protocol != "any" {
+		return false
+	}
+	if n.Port == "any" {
+		return true
+	}
+	for _, entry := range strings.Split(n.Port, ",") {
+		lo, hi, isRange := strings.Cut(strings.TrimSpace(entry), ":")
+		if !isRange {
+			hi = lo
+		}
+		first, err1 := strconv.Atoi(lo)
+		last, err2 := strconv.Atoi(hi)
+		if err1 == nil && err2 == nil && first <= sshPort && sshPort <= last {
+			return true
+		}
+	}
+	return false
+}
+
+func anyAllowsSSH(entries []tableRule) bool {
+	for _, e := range entries {
+		if allowsSSH(e.rule) {
+			return true
+		}
+	}
+	return false
+}
+
+// isSSHRule reports whether a rule in place is a dedicated SSH rule (tcp on
+// port 22 alone), like the one install.sh creates. Only these are kept: a
+// range or a port list that happens to include 22 is removed as usual, so a
+// broad rule dropped from the dashboard does not stay open.
+func isSSHRule(r FirewallRule) bool {
+	n := r.normalized()
+	return n.Protocol == "tcp" && n.Port == strconv.Itoa(sshPort)
+}
+
+// keepSSHRules drops the dedicated SSH rules from a list of table entries to
+// remove, in both tables, logging each one it keeps and why.
+func (fc *FirewallCollector) keepSSHRules(entries []tableRule, reason string) []tableRule {
+	var kept []tableRule
+	for _, e := range entries {
+		if isSSHRule(e.rule) {
+			fc.logger.Infof("Keeping SSH rule (%s) %s: %s", e.family, e.rule.String(), reason)
+			continue
+		}
+		kept = append(kept, e)
+	}
+	return kept
 }
 
 // SyncFirewallRules synchronizes UFW rules with API rules
@@ -435,17 +504,37 @@ func (fc *FirewallCollector) SyncFirewallRules(ctx context.Context, apiRulesJSON
 
 	changesMade := false
 
-	// Add new rules
+	// Add new rules first, so a replacement is in place before the rule it
+	// replaces is removed.
+	sshAddFailed := false
 	if len(rulesToAdd) > 0 {
 		fc.logger.Info("Adding new UFW rules")
 		for _, rule := range rulesToAdd {
 			if err := fc.addUFWRule(ctx, rule); err != nil {
 				fc.logger.Errorf("Failed to add rule %s: %v", rule.String(), err)
+				if allowsSSH(rule) {
+					sshAddFailed = true
+				}
 			} else {
 				fc.logger.Infof("Added rule: %s", rule.String())
 				changesMade = true
 			}
 		}
+	}
+
+	// If the dashboard's SSH access could not be added, keep the SSH rule in
+	// place for this cycle instead of swapping it for nothing; the next cycle
+	// retries the add.
+	if sshAddFailed {
+		var kept []FirewallRule
+		for _, rule := range rulesToRemove {
+			if isSSHRule(rule) {
+				fc.logger.Infof("Keeping SSH rule %s: adding the dashboard's SSH rule failed", rule.String())
+				continue
+			}
+			kept = append(kept, rule)
+		}
+		rulesToRemove = kept
 	}
 
 	// Remove obsolete rules
