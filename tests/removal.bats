@@ -93,9 +93,49 @@ postrm() {
   assert_contains "$UNINSTALL_SH" 'dnf -y --setopt=clean_requirements_on_remove=False remove lsh-agent'
 }
 
-@test "uninstall refuses to run without /etc/lsh-agent/env" {
-  [ -e /etc/lsh-agent/env ] && skip "this host has a real agent config"
+@test "uninstall as non-root refuses before reading anything" {
+  [ "$(id -u)" = 0 ] && skip "running as root: uninstall.sh would really uninstall"
   run bash "$UNINSTALL_SH"
   [ "$status" -eq 1 ]
+  [[ "$output" == *"Please run as root"* ]]
+}
+
+@test "uninstall refuses to run without /etc/lsh-agent/env" {
+  run grep -n -A4 'if \[ -f /etc/lsh-agent/env \]' "$UNINSTALL_SH"
   [[ "$output" == *"env file not found"* ]]
+  [[ "$output" == *"exit 1"* ]]
+}
+
+@test "uninstall never sources the env file (it is data, not a script)" {
+  assert_lacks_code_re "$UNINSTALL_SH" '(^|[[:space:];])(source|\.)[[:space:]]+[^[:space:]]*lsh-agent/env'
+}
+
+@test "uninstall checks for root before reading the env file" {
+  root_check=$(grep -n 'if \[ "\$EUID" -ne 0 \]' "$UNINSTALL_SH" | head -n 1 | cut -d: -f1)
+  first_read=$(grep -n 'lsh-agent/env' "$UNINSTALL_SH" | grep -v '^[0-9]*:#' | head -n 1 | cut -d: -f1)
+  [ -n "$root_check" ]
+  [ -n "$first_read" ]
+  [ "$root_check" -lt "$first_read" ]
+}
+
+@test "env_value reads a crafted env file without executing it" {
+  eval "$(extract_fn "$UNINSTALL_SH" env_value)"
+  local env="$ROOT/env" marker="$BATS_TEST_TMPDIR/ran"
+  printf 'FIREWALL_ID=fw_1\nPROJECT_ID=p1;touch %s\nPUBLIC_IP=$(touch %s)\nX=`touch %s`\n' \
+    "$marker" "$marker" "$marker" > "$env"
+  run env_value "$env" PROJECT_ID
+  [ "$status" -eq 0 ]
+  [ "$output" = "p1;touch $marker" ]
+  run env_value "$env" PUBLIC_IP
+  [ "$output" = "\$(touch $marker)" ]
+  [ ! -e "$marker" ]
+}
+
+@test "env_value returns the last value of a key and nothing for a missing key" {
+  eval "$(extract_fn "$UNINSTALL_SH" env_value)"
+  printf 'PROJECT_ID=old\nPROJECT_ID=proj_1\n' > "$ROOT/env"
+  run env_value "$ROOT/env" PROJECT_ID
+  [ "$output" = proj_1 ]
+  run env_value "$ROOT/env" FIREWALL_ID
+  [ -z "$output" ]
 }

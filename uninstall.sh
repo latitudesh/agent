@@ -12,9 +12,21 @@ print_colored() {
     esac
 }
 
-# Check if /etc/lsh-agent/env exists and source it
+# env_value <file> <key>: the value of the last KEY= line of an env file. The
+# file is read as data and never sourced, so nothing in it is executed.
+env_value() {
+    sed -n "s/^$2=//p" "$1" | tail -n 1
+}
+
+# Check if running as root
+if [ "$EUID" -ne 0 ]; then
+    print_colored "red" "Please run as root"
+    exit 1
+fi
+
+# Check if /etc/lsh-agent/env exists and read the project ID from it
 if [ -f /etc/lsh-agent/env ]; then
-    source /etc/lsh-agent/env
+    PROJECT_ID="$(env_value /etc/lsh-agent/env PROJECT_ID)"
 else
     print_colored "red" "Error: /etc/lsh-agent/env file not found."
     exit 1
@@ -23,12 +35,6 @@ fi
 # Check if PROJECT_ID is set
 if [ -z "$PROJECT_ID" ]; then
     print_colored "red" "Error: Project ID is required."
-    exit 1
-fi
-
-# Check if running as root
-if [ "$EUID" -ne 0 ]; then
-    print_colored "red" "Please run as root"
     exit 1
 fi
 

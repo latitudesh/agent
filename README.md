@@ -8,6 +8,7 @@ The Latitude.sh Agent (`lsh-agent`) is a lightweight daemon that keeps your serv
 2. On each cycle it fetches the current rules for the firewall assigned to the server.
 3. Before applying anything, it verifies that the firewall returned by the API matches the `firewall_id` (and `project_id`) it was installed with. If the API returns a different firewall — for example a stale assignment left over after the server was released to the pool — the agent refuses to apply it, leaving the existing firewall untouched, rather than enforcing another tenant's rules.
 4. Rules are synchronized with UFW: missing rules are added and stale rules are removed, so the server always matches what is configured in the dashboard.
+5. SSH is never removed unless the dashboard defines its own SSH rule. The installer opens 22/tcp (`ufw allow ssh`) and incoming traffic is denied by default, so the agent keeps that rule while the dashboard rule set has no rule allowing TCP port 22, including when the firewall is disabled. Once the dashboard allows TCP port 22 (for example only from an office range), the open rule is replaced, and only after the dashboard's SSH rule was added. A range or port list that merely includes 22 is managed like any other rule.
 
 Notes:
 
