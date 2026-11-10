@@ -157,3 +157,24 @@ func TestPingAndGetFirewallRules_StalledAPITimesOut(t *testing.T) {
 		t.Fatal("PingAndGetFirewallRules did not return: a stalled API blocks the sync loop")
 	}
 }
+
+func TestPingAndGetFirewallRules_ConnectsOverIPv4Only(t *testing.T) {
+	ln, err := net.Listen("tcp6", "[::1]:0")
+	if err != nil {
+		t.Skipf("IPv6 loopback unavailable: %v", err)
+	}
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"firewall":{}}`))
+	}))
+	srv.Listener = ln
+	srv.Start()
+	defer srv.Close()
+
+	logger := logrus.New()
+	logger.SetOutput(nopWriter{})
+	lc := NewLatitudeClient("", srv.URL, "proj_me", "fw_me", "203.0.113.10", logger)
+
+	if _, err := lc.PingAndGetFirewallRules(context.Background()); err == nil {
+		t.Fatal("expected the IPv4-only client to fail against an IPv6-only API")
+	}
+}
