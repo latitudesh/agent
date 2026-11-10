@@ -65,6 +65,11 @@ func TestFirewallRuleString(t *testing.T) {
 			want: "From: ::/0, To: any, Protocol: tcp, Port: 22",
 		},
 		{
+			name: "sorts a multiport list like ufw and drops spaces",
+			rule: FirewallRule{From: "any", Protocol: "tcp", Port: "9000, 443,8000:8010"},
+			want: "From: any, To: any, Protocol: tcp, Port: 443,8000:8010,9000",
+		},
+		{
 			name: "empty fields default to any",
 			rule: FirewallRule{},
 			want: "From: any, To: any, Protocol: any, Port: any",
