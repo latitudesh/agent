@@ -155,27 +155,37 @@ func TestRunLoop_CancelInterruptsCycle(t *testing.T) {
 	}
 }
 
-func TestRunLoop_RunsAtOnceThenOnEveryTick(t *testing.T) {
+func TestRunLoop_RunsAtOnce(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ran := make(chan struct{})
+	go runLoop(ctx, time.Hour, func(context.Context) error {
+		close(ran)
+		cancel()
+		return nil
+	}, func(error) {})
+
+	select {
+	case <-ran:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the first cycle waited for the ticker instead of running right away")
+	}
+}
+
+func TestRunLoop_RunsOnEveryTickAndReportsFailures(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	var cycles, reported atomic.Int32
-	start := time.Now()
-	var first time.Duration
-	runLoop(ctx, 20*time.Millisecond, func(context.Context) error {
-		if cycles.Add(1) == 1 {
-			first = time.Since(start)
-		}
-		if cycles.Load() == 3 {
+	runLoop(ctx, 10*time.Millisecond, func(context.Context) error {
+		if cycles.Add(1) == 3 {
 			cancel()
 			return nil
 		}
 		return errors.New("api down")
 	}, func(error) { reported.Add(1) })
 
-	if first > 10*time.Millisecond {
-		t.Errorf("first cycle ran after %v, want it right away", first)
-	}
 	if cycles.Load() != 3 {
 		t.Errorf("cycles = %d, want 3 (no cycle after cancel)", cycles.Load())
 	}
