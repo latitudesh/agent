@@ -260,6 +260,12 @@ func (fc *FirewallCollector) parseUFWRules(output string) ([]tableRule, error) {
 	var rules []tableRule
 
 	for _, line := range strings.Split(output, "\n") {
+		// ufw prints a rule's comment after its From column
+		// ("22/tcp ALLOW Anywhere # ssh"). Drop it first, or it is read as part
+		// of the source address and the rule is never matched or removed.
+		if before, _, found := strings.Cut(line, " # "); found {
+			line = before
+		}
 		line = strings.TrimSpace(line)
 		if !strings.Contains(line, "ALLOW") {
 			continue
