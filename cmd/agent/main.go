@@ -40,6 +40,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	interval, err := cfg.SyncInterval()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to load configuration: %v\n", err)
+		os.Exit(1)
+	}
+
 	if *checkConfig {
 		fmt.Println("Configuration is valid")
 		os.Exit(0)
@@ -86,12 +92,6 @@ func main() {
 	if err := latitudeClient.HealthCheck(ctx); err != nil {
 		log.WithError(err).Error("Initial health check failed")
 		// Don't exit immediately, allow retry in main loop
-	}
-
-	// Parse interval
-	interval, err := time.ParseDuration(cfg.Agent.Interval)
-	if err != nil {
-		log.Fatalf("Invalid interval %s: %v", cfg.Agent.Interval, err)
 	}
 
 	log.Infof("Starting agent with %s interval", interval)
