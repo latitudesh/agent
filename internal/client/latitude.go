@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"time"
@@ -61,10 +62,22 @@ type FirewallRule struct {
 // cycle: dashboard changes stop being applied and nothing is logged.
 const requestTimeout = 30 * time.Second
 
+// newHTTPClient connects over IPv4 only. The API checks that a ping comes from
+// the IPv4 address it claims, and an IPv6 connection carries an address the
+// API cannot tie to this server.
+func newHTTPClient() *http.Client {
+	dialer := &net.Dialer{Timeout: requestTimeout, KeepAlive: 30 * time.Second}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DialContext = func(ctx context.Context, _, addr string) (net.Conn, error) {
+		return dialer.DialContext(ctx, "tcp4", addr)
+	}
+	return &http.Client{Timeout: requestTimeout, Transport: transport}
+}
+
 // NewLatitudeClient creates a new Latitude.sh API client
 func NewLatitudeClient(bearerToken, apiEndpoint, projectID, firewallID, publicIP string, logger *logrus.Logger) *LatitudeClient {
 	return &LatitudeClient{
-		httpClient:  &http.Client{Timeout: requestTimeout},
+		httpClient:  newHTTPClient(),
 		apiEndpoint: apiEndpoint,
 		bearerToken: bearerToken,
 		projectID:   projectID,

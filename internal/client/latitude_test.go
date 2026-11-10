@@ -157,3 +157,37 @@ func TestPingAndGetFirewallRules_StalledAPITimesOut(t *testing.T) {
 		t.Fatal("PingAndGetFirewallRules did not return: a stalled API blocks the sync loop")
 	}
 }
+
+func TestPingAndGetFirewallRules_ConnectsOverIPv4Only(t *testing.T) {
+	cases := []struct {
+		network, addr string
+		wantErr       bool
+	}{
+		{"tcp4", "127.0.0.1:0", false},
+		{"tcp6", "[::1]:0", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.network, func(t *testing.T) {
+			ln, err := net.Listen(tc.network, tc.addr)
+			if err != nil {
+				t.Skipf("%s loopback unavailable: %v", tc.network, err)
+			}
+			srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(`{"firewall":{}}`))
+			}))
+			_ = srv.Listener.Close()
+			srv.Listener = ln
+			srv.Start()
+			defer srv.Close()
+
+			logger := logrus.New()
+			logger.SetOutput(nopWriter{})
+			lc := NewLatitudeClient("", srv.URL, "proj_me", "fw_me", "203.0.113.10", logger)
+
+			_, err = lc.PingAndGetFirewallRules(context.Background())
+			if gotErr := err != nil; gotErr != tc.wantErr {
+				t.Fatalf("PingAndGetFirewallRules over %s: err = %v, want error = %v", tc.network, err, tc.wantErr)
+			}
+		})
+	}
+}
