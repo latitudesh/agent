@@ -1,1 +1,5 @@
 /dist/
+
+# Editor and sync-client backups (e.g. .firewall.go.~50c55b06).
+.*.~*
+*~
