@@ -50,7 +50,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -uo pipefail
-          go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+          go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
           gv="$(go env GOPATH)/bin/govulncheck"
           rows="$RUNNER_TEMP/rows"
           : >"$rows"

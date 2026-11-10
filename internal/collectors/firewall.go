@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -37,11 +38,33 @@ func (r FirewallRule) normalized() FirewallRule {
 	if protocol == "" {
 		protocol = "any"
 	}
-	port := strings.TrimSpace(r.Port)
+	port := normalizePort(r.Port)
 	if port == "" {
 		port = "any"
 	}
 	return FirewallRule{From: normalizeAddr(r.From), To: normalizeAddr(r.To), Protocol: protocol, Port: port}
+}
+
+// normalizePort puts a multiport list in the form ufw stores and prints it:
+// no spaces, entries sorted by their first port ("443, 80" is stored as
+// "80,443", "9000,8000:8010" as "8000:8010,9000"). A single port or range is
+// returned trimmed.
+func normalizePort(port string) string {
+	port = strings.ReplaceAll(strings.TrimSpace(port), " ", "")
+	if !strings.Contains(port, ",") {
+		return port
+	}
+	entries := strings.Split(port, ",")
+	start := func(entry string) int {
+		first, _, _ := strings.Cut(entry, ":")
+		n, err := strconv.Atoi(first)
+		if err != nil {
+			return -1
+		}
+		return n
+	}
+	sort.SliceStable(entries, func(i, j int) bool { return start(entries[i]) < start(entries[j]) })
+	return strings.Join(entries, ",")
 }
 
 // normalizeAddr canonicalizes a source/destination address the way ufw does
@@ -248,11 +271,13 @@ func (fc *FirewallCollector) currentTableRules(ctx context.Context) ([]tableRule
 // optional destination before the port/proto: when the destination is "any"
 // ufw prints just the port (e.g. "22/tcp ALLOW Anywhere"), and when it is a
 // specific host it prefixes it (e.g. "203.51.16.0 8081/tcp ALLOW 8.8.8.8").
-// Group 1 captures that optional destination. The port/proto (group 2) is
-// either a single port ("22/tcp") or a port range ("1:65535/tcp"); without the
-// range branch, range rules fail to parse and the sync re-adds them every cycle.
+// Group 1 captures that optional destination. The port/proto (group 2) is a
+// port ("22/tcp"), a range ("1:65535/tcp"), or a comma-separated list of either
+// ("80,443/tcp", "8000:8010,9000/tcp"), which ufw accepts as a multiport rule.
+// A row that does not match is invisible to the sync: the rule is re-added
+// every cycle and, worse, never deleted once the API drops it.
 // The "(v6)" tags are stripped before matching.
-var ufwRuleRegex = regexp.MustCompile(`^(?:(\S+)\s+)?([0-9]+(?::[0-9]+)?/[a-z]+)\s+ALLOW\s+(.+)$`)
+var ufwRuleRegex = regexp.MustCompile(`^(?:(\S+)\s+)?([0-9]+(?::[0-9]+)?(?:,[0-9]+(?::[0-9]+)?)*/[a-z]+)\s+ALLOW\s+(.+)$`)
 
 // parseUFWRules parses `ufw status` output into the rules of each ufw table.
 // A row belongs to the IPv6 table when ufw tags it "(v6)" (it does so when an
