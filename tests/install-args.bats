@@ -114,3 +114,36 @@ setup() {
     if valid_ip "$ip"; then echo "accepted invalid $ip"; return 1; fi
   done
 }
+
+# detect <ip-addr-lines> <hostname-I>: run detect_public_ip with stubbed
+# `ip -4 -o addr` output (one CIDR per line) and `hostname -I` output.
+detect() {
+  eval "$(extract_fn "$INSTALL_SH" valid_ipv4 detect_public_ip)"
+  IP_ADDRS="$1" HOSTNAME_I="$2"
+  ip() { local a; for a in $IP_ADDRS; do echo "2: eth0    inet $a brd x scope global eth0"; done; }
+  hostname() { echo "$HOSTNAME_I"; }
+  detect_public_ip
+}
+
+@test "detect_public_ip skips a private interface listed first" {
+  run detect "10.0.0.5/24 203.0.113.7/31" "10.0.0.5 203.0.113.7"
+  [ "$status" -eq 0 ]
+  [ "$output" = "203.0.113.7" ]
+}
+
+@test "detect_public_ip skips CGNAT, link-local and 172.16/12" {
+  run detect "100.64.1.2/10 169.254.1.1/16 172.20.0.1/16 198.51.100.9/24" "100.64.1.2"
+  [ "$output" = "198.51.100.9" ]
+}
+
+@test "detect_public_ip keeps 172.32/16, which is public" {
+  run detect "172.32.0.9/24" "172.32.0.9"
+  [ "$output" = "172.32.0.9" ]
+}
+
+@test "detect_public_ip falls back to hostname -I behind NAT" {
+  run detect "100.64.3.4/10" "100.64.3.4 10.1.1.1"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Warning: no public IPv4 address"* ]]
+  [[ "$output" == *"100.64.3.4" ]]
+}

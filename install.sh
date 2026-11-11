@@ -54,6 +54,32 @@ valid_ip() {
     fi
 }
 
+# detect_public_ip: the first global-scope IPv4 that is not private, CGNAT or
+# link-local. The API matches a ping against the server's public address, and
+# `hostname -I` lists addresses in interface order, so on a host whose private
+# VLAN interface comes first it would report an address the API never knows.
+# Falls back to the first `hostname -I` address (a host behind NAT has no
+# public address on any interface).
+detect_public_ip() {
+    local addr
+    if command -v ip >/dev/null 2>&1; then
+        while read -r addr; do
+            addr="${addr%/*}"
+            case "$addr" in
+                10.*|127.*|169.254.*|192.168.*) continue ;;
+                172.1[6-9].*|172.2[0-9].*|172.3[01].*) continue ;;
+                100.6[4-9].*|100.[7-9][0-9].*|100.1[01][0-9].*|100.12[0-7].*) continue ;;
+            esac
+            if valid_ipv4 "$addr"; then
+                echo "$addr"
+                return 0
+            fi
+        done < <(ip -4 -o addr show scope global | awk '{print $4}')
+    fi
+    echo "Warning: no public IPv4 address on any interface; using the first address from hostname -I." >&2
+    hostname -I | awk '{print $1}'
+}
+
 # write_env_file <path>: write the IDs as plain KEY=value lines. The file is
 # data: uninstall.sh and the agent read it, nothing executes it. Written to a
 # temporary file and renamed, so a reader never sees a partial file.
@@ -435,7 +461,7 @@ fi
 
 # Get public IP address if PUBLIC_IP was not provided
 if [ -z "$PUBLIC_IP" ]; then
-    PUBLIC_IP=$(hostname -I | awk '{print $1}')
+    PUBLIC_IP=$(detect_public_ip)
     if [ -n "$PUBLIC_IP" ] && ! valid_ip "$PUBLIC_IP"; then
         echo "Warning: could not detect a valid public IP ($PUBLIC_IP); leaving PUBLIC_IP empty."
         PUBLIC_IP=""
