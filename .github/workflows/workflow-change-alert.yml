@@ -1,0 +1,69 @@
+name: Workflow change alert
+
+# A CI change that lands on main without a pull request is how the November
+# 2026 "wfx" campaign ran its CI secret stealer: a stolen token pushes the
+# change straight to the default branch, reverts it seconds later and deletes
+# the run. The revert leaves both commits in history, so post every commit on
+# main that touches .github/ without a merged pull request, and every force
+# push, to #tinkerbell-events.
+#
+# This runs from the pushed commit, so a push that edits or deletes this file
+# can silence it; the commits themselves stay visible in history.
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  alert:
+    name: CI changes pushed without a PR
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the pushed commits
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_TINKERBELL_EVENTS }}
+        run: |
+          set -euo pipefail
+          ev="$GITHUB_EVENT_PATH"
+          forced="$(jq -r '.forced' "$ev")"
+          pusher="$(jq -r '.pusher.name' "$ev")"
+          compare="$(jq -r '.compare' "$ev")"
+          found=()
+          while IFS=$'\t' read -r sha author subject; do
+            # A commit merged through a PR (merge, squash or rebase) is
+            # associated with it; a direct push is not.
+            merged="$(gh api "repos/$REPO/commits/$sha/pulls" --jq '[.[] | select(.merged_at != null)] | length')"
+            if [ "$merged" -eq 0 ]; then
+              found+=("• ${sha:0:7} by ${author}: ${subject}")
+            fi
+          done < <(jq -r '.commits[]
+            | select([.added[], .modified[], .removed[]] | any(startswith(".github/")))
+            | [.id, (.author.username // .author.name), (.message | split("\n")[0])] | @tsv' "$ev")
+
+          if [ "${#found[@]}" -eq 0 ] && [ "$forced" != true ]; then
+            echo "No CI change without a PR in this push."
+            exit 0
+          fi
+
+          text=":rotating_light: *${REPO}*: "
+          if [ "$forced" = true ]; then text+="force push to main by ${pusher}. "; fi
+          if [ "${#found[@]}" -gt 0 ]; then
+            text+="${#found[@]} commit(s) changed .github/ on main without a pull request (pushed by ${pusher}):"
+            for l in "${found[@]}"; do text+=$'\n'"$l"; done
+          fi
+          text+=$'\n'"${compare}"$'\n'"If nobody on the team expected this, treat the repo's CI secrets as exposed."
+          printf '%s\n' "$text"
+
+          # An alert that cannot be delivered must fail loudly, not skip.
+          if [ -z "$SLACK_WEBHOOK" ]; then
+            echo "::error::SLACK_WEBHOOK_TINKERBELL_EVENTS is not set, the alert above was not delivered"
+            exit 1
+          fi
+          jq -n --arg text "$text" '{text: $text}' |
+            curl -fsS -X POST -H 'Content-Type: application/json' --data @- "$SLACK_WEBHOOK" > /dev/null
