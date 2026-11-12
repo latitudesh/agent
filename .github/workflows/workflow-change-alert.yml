@@ -43,9 +43,10 @@ jobs:
           found=()
           for sha in $shas; do
             commit="$(gh api "repos/$REPO/commits/$sha")"
-            # The API lists at most 300 files per commit; treat a commit that
-            # hits the cap as touching .github/ rather than miss one.
-            touches="$(jq -r '([.files[].filename] | any(startswith(".github/"))) or (.files | length >= 300)' <<< "$commit")"
+            # Old and new path, so moving a workflow out of .github/ counts. The
+            # API lists at most 300 files per commit; treat a commit that hits
+            # the cap as touching .github/ rather than miss one.
+            touches="$(jq -r '([.files[] | .filename, (.previous_filename // empty)] | any(startswith(".github/"))) or (.files | length >= 300)' <<< "$commit")"
             [ "$touches" = true ] || continue
             # Brought in by a merged PR into this branch of this repo (merge,
             # squash or rebase)? A PR merged into another branch does not count.
