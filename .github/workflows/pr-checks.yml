@@ -54,3 +54,30 @@ jobs:
           docker run --rm -v "$PWD:/repo:ro" \
             ghcr.io/zizmorcore/zizmor:1.31.1@sha256:42d409dbb851d4c5d35a058cf042b828bea1e3f2884378c526eb0974780e18d9 \
             --offline --format github /repo/.github
+
+  claude-local:
+    name: Claude Code local files
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Per-user Claude Code files must never be committed: settings.local.json
+      # keeps "don't ask again" approvals as whole command lines, and passwords
+      # passed on a command line (sshpass -p, mysql -p, ...) have no provider
+      # format, so gitleaks and TruffleHog miss them. Fail on the file names
+      # instead, in any commit the PR adds and in the resulting tree.
+      - name: No Claude Code local files
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          re='(^|/)\.claude/(.*/)?[^/]*\.local\.[^/]+$|(^|/)CLAUDE\.local\.md$'
+          found="$( { git log --diff-merges=first-parent --no-renames --diff-filter=A --name-only --format= "${BASE_SHA}..HEAD"; git ls-files; } | grep -E "$re" | sort -u || true)"
+          if [ -n "$found" ]; then
+            while IFS= read -r f; do echo "::error::Claude Code local file committed: $f"; done <<< "$found"
+            echo "Remove it from the PR (rewrite the commits that added it) and rotate any credential it held."
+            exit 1
+          fi
