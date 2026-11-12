@@ -18,7 +18,7 @@ defaults:
 
 jobs:
   secrets:
-    name: Secrets (gitleaks)
+    name: Secrets (gitleaks, TruffleHog)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -39,6 +39,19 @@ jobs:
             git --no-banner --redact --exit-code 3 --log-opts="--diff-merges=first-parent ${BASE_SHA}..HEAD" .
           docker run --rm -v "$PWD:/repo" -w /repo "$GITLEAKS" \
             dir --no-banner --redact --exit-code 3 .
+
+      # Second opinion on the same commits: TruffleHog checks each candidate
+      # against its provider, so it reports live credentials (verified) and the
+      # ones it could not check (unknown), not every high-entropy string.
+      # Exit 183 = a finding; any other non-zero is a scan error, and both fail.
+      - name: TruffleHog
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          TRUFFLEHOG: trufflesecurity/trufflehog:3.99.7@sha256:0d003fc3abc4e1565eca8462b992001314de51451e96e3c44de80d116794d5d1
+        run: |
+          docker run --rm -v "$PWD:/repo:ro" "$TRUFFLEHOG" \
+            git file:///repo --since-commit "$BASE_SHA" --branch HEAD \
+            --results=verified,unknown --fail --no-update
 
   workflows:
     name: Workflows (zizmor)
