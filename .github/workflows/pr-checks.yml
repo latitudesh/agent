@@ -74,8 +74,16 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          re='(^|/)\.claude/(.*/)?[^/]*\.local\.[^/]+$|(^|/)CLAUDE\.local\.md$'
-          found="$( { git log --diff-merges=first-parent --no-renames --diff-filter=A --name-only --format= "${BASE_SHA}..HEAD"; git ls-files; } | grep -E "$re" | sort -u || true)"
+          set -euo pipefail
+          re='(^|/)\.claude/(.*/)?[^/]*\.local\.[^/]+$|(^|/)CLAUDE\.local\.md$|(^|/)\.claude/worktrees(/|$)'
+          # NUL-separated so git never quotes a path; a git error fails the step.
+          git log -z --diff-merges=first-parent --no-renames --diff-filter=A --name-only --format= \
+            "${BASE_SHA}..HEAD" > "$RUNNER_TEMP/added"
+          git ls-files -z > "$RUNNER_TEMP/tracked"
+          rc=0
+          found="$(cat "$RUNNER_TEMP/added" "$RUNNER_TEMP/tracked" | grep -zE "$re" | sort -zu | tr '\0' '\n')" || rc=$?
+          # grep exits 1 when nothing matches; anything above that is a real error.
+          if [ "$rc" -gt 1 ]; then exit "$rc"; fi
           if [ -n "$found" ]; then
             while IFS= read -r f; do echo "::error::Claude Code local file committed: $f"; done <<< "$found"
             echo "Remove it from the PR (rewrite the commits that added it) and rotate any credential it held."

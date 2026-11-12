@@ -6,7 +6,7 @@
 
 # Claude Code per-user files. "Don't ask again" approvals in settings.local.json
 # store whole command lines, credentials included, so they never belong in git.
-.claude/settings.local.json
-.claude/**/*.local.*
-CLAUDE.local.md
-.claude/worktrees/
+**/.claude/settings.local.json
+**/.claude/**/*.local.*
+**/CLAUDE.local.md
+**/.claude/worktrees/
