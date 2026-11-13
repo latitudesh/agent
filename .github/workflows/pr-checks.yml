@@ -18,7 +18,7 @@ defaults:
 
 jobs:
   secrets:
-    name: Secrets (gitleaks, TruffleHog)
+    name: Secrets (betterleaks, TruffleHog)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -29,16 +29,18 @@ jobs:
 
       # The commits this PR adds, merges included (diffed against their first
       # parent), then the resulting tree.
+      # generic-password is off: it flags the placeholder passwords in tests and
+      # docs, and gitleaks (which this replaces) had no such rule.
       # Exit 3 = a finding; any other non-zero is a scan error, and both fail.
-      - name: gitleaks
+      - name: betterleaks
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          GITLEAKS: zricethezav/gitleaks:v8.28.0@sha256:cdbb7c955abce02001a9f6c9f602fb195b7fadc1e812065883f695d1eeaba854
+          BETTERLEAKS: ghcr.io/betterleaks/betterleaks:v1.10.1@sha256:f345c1ac502abc51ec334c3d815ad18a79fb1509555fc4496b2cb88e760681b3
         run: |
-          docker run --rm -v "$PWD:/repo" -w /repo "$GITLEAKS" \
-            git --no-banner --redact --exit-code 3 --log-opts="--diff-merges=first-parent ${BASE_SHA}..HEAD" .
-          docker run --rm -v "$PWD:/repo" -w /repo "$GITLEAKS" \
-            dir --no-banner --redact --exit-code 3 .
+          docker run --rm -v "$PWD:/repo" -w /repo "$BETTERLEAKS" \
+            git --no-banner --redact --disable-rule generic-password --exit-code 3 --log-opts="--diff-merges=first-parent ${BASE_SHA}..HEAD" .
+          docker run --rm -v "$PWD:/repo" -w /repo "$BETTERLEAKS" \
+            dir --no-banner --redact --disable-rule generic-password --exit-code 3 .
 
       # Second opinion on the same commits: TruffleHog checks each candidate
       # against its provider, so it reports live credentials (verified) and the
