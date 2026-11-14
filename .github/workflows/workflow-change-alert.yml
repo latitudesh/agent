@@ -1,0 +1,82 @@
+name: Workflow change alert
+
+# A CI change that lands on main without a pull request is how the November
+# 2026 "wfx" campaign ran its CI secret stealer: a stolen token pushes the
+# change straight to the default branch, reverts it seconds later and deletes
+# the run. The revert leaves both commits in history, so post every commit on
+# main that touches .github/ without a merged pull request, and every force
+# push, to #tinkerbell-events.
+#
+# This runs from the pushed commit, so a push that edits or deletes this file
+# can silence it; the commits themselves stay visible in history.
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  alert:
+    name: CI changes pushed without a PR
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the pushed commits
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_TINKERBELL_EVENTS }}
+        run: |
+          set -euo pipefail
+          ev="$GITHUB_EVENT_PATH"
+          forced="$(jq -r '.forced' "$ev")"
+          pusher="$(jq -r '.pusher.name' "$ev")"
+          compare="$(jq -r '.compare' "$ev")"
+          # Commit ids only: the file lists come from the API, since push
+          # payloads in Actions can omit them. Plain command substitutions, so
+          # any jq or gh failure fails the step instead of looking like
+          # "nothing to report".
+          shas="$(jq -r '.commits[].id' "$ev")"
+          found=()
+          for sha in $shas; do
+            commit="$(gh api "repos/$REPO/commits/$sha")"
+            # Old and new path, so moving a workflow out of .github/ counts. The
+            # API lists at most 300 files per commit; treat a commit that hits
+            # the cap as touching .github/ rather than miss one.
+            touches="$(jq -r '([.files[] | .filename, (.previous_filename // empty)] | any(startswith(".github/"))) or (.files | length >= 300)' <<< "$commit")"
+            [ "$touches" = true ] || continue
+            # Brought in by a merged PR into this branch of this repo (merge,
+            # squash or rebase)? A PR merged into another branch does not count.
+            merged="$(gh api "repos/$REPO/commits/$sha/pulls" \
+              --jq "[.[] | select(.merged_at != null and .base.ref == \"$BRANCH\" and .base.repo.full_name == \"$REPO\")] | length")"
+            if [ "$merged" -eq 0 ]; then
+              author="$(jq -r '.author.login // .commit.author.name' <<< "$commit")"
+              subject="$(jq -r '.commit.message | split("\n")[0]' <<< "$commit")"
+              found+=("• ${sha:0:7} by ${author}: ${subject}")
+            fi
+          done
+
+          if [ "${#found[@]}" -eq 0 ] && [ "$forced" != true ]; then
+            echo "No CI change without a PR in this push."
+            exit 0
+          fi
+
+          text=":rotating_light: *${REPO}*: "
+          if [ "$forced" = true ]; then text+="force push to ${BRANCH} by ${pusher}. "; fi
+          if [ "${#found[@]}" -gt 0 ]; then
+            text+="${#found[@]} commit(s) changed .github/ on ${BRANCH} without a pull request (pushed by ${pusher}):"
+            for l in "${found[@]}"; do text+=$'\n'"$l"; done
+          fi
+          text+=$'\n'"${compare}"$'\n'"If nobody on the team expected this, treat the repo's CI secrets as exposed."
+          printf '%s\n' "$text"
+
+          # An alert that cannot be delivered must fail loudly, not skip.
+          if [ -z "$SLACK_WEBHOOK" ]; then
+            echo "::error::SLACK_WEBHOOK_TINKERBELL_EVENTS is not set, the alert above was not delivered"
+            exit 1
+          fi
+          jq -n --arg text "$text" '{text: $text}' |
+            curl -fsS --retry 5 --retry-delay 3 --retry-connrefused -X POST -H 'Content-Type: application/json' --data @- "$SLACK_WEBHOOK" > /dev/null
