@@ -28,7 +28,7 @@ jobs:
       contents: write
       pull-requests: read
     steps:
-      - uses: release-drafter/release-drafter@978bb0b30c5ee8cdd332ced253758157150d43f0 # v7.10.0
+      - uses: release-drafter/release-drafter@d1a19e60e81a7e650d00a7de9277f87e439117ea # v7.11.0
 
   # Labels PRs from their conventional-commit titles. Since v7 this is its own
   # action; it reads the autolabeler section of .github/release-drafter.yml.
@@ -60,4 +60,4 @@ jobs:
               gh api -X DELETE "repos/${GITHUB_REPOSITORY}/issues/${PR}/labels/$(jq -rn --arg l "$label" '$l | @uri')" > /dev/null
             done
 
-      - uses: release-drafter/release-drafter/autolabeler@978bb0b30c5ee8cdd332ced253758157150d43f0 # v7.10.0
+      - uses: release-drafter/release-drafter/autolabeler@d1a19e60e81a7e650d00a7de9277f87e439117ea # v7.11.0
